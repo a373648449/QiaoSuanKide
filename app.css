@@ -272,6 +272,20 @@ button, select, .key, .tab, .mascot {
     font-size: 14px;
 }
 
+.btn-replay {
+    display: block;
+    width: 100%;
+    margin-bottom: 10px;
+    padding: 10px 0;
+    border: 0;
+    border-radius: 10px;
+    background: #0ea5e9;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
 .solution-text {
     margin-bottom: 8px;
     white-space: pre-line;

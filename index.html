@@ -55,13 +55,14 @@
             <div class="play-keys">
                 <div class="keypad" id="keypad"></div>
                 <div class="actions">
-                    <button onclick="showSolution(true)" class="btn btn-hint">解题思路</button>
+                    <button onclick="showSolution(true)" class="btn btn-hint">听思路</button>
                     <button onclick="nextQuestion(true)" id="btnNext" class="btn btn-next">下一题</button>
                 </div>
             </div>
         </div>
 
         <div id="tipBox" class="tip hidden">
+            <button type="button" class="btn-replay" onclick="replaySolution()">🔊 再听一遍</button>
             <div id="solutionText" class="solution-text"></div>
             <div id="framesWrap" class="frames"></div>
             <div id="tray" class="tray"></div>
@@ -90,7 +91,7 @@
         </div>
         <div class="parent-box">
             <label class="check-row">
-                <input id="soundChk" type="checkbox" onchange="toggleSound(this.checked)"> 读出题目
+                <input id="soundChk" type="checkbox" onchange="toggleSound(this.checked)"> 语音讲解
             </label>
             <button type="button" class="btn-reset" onclick="resetAllProgress()">一键清空全部进度</button>
             <p class="parent-tip">会清掉星星、关卡、今日记录和错题本，方便重新练。</p>
@@ -137,7 +138,8 @@ let state = {
     firstTry: true,
     resolved: false,
     fromError: -1,
-    lastKey: ""
+    lastKey: "",
+    solutionLines: []
 }
 
 let aniToken = 0
@@ -158,6 +160,7 @@ function later(fn, ms) {
 function clearTimers() {
     timers.splice(0).forEach(clearTimeout)
     aniToken++
+    if (window.speechSynthesis) speechSynthesis.cancel()
 }
 function saveData() {
     const {input, firstTry, resolved, fromError, ...rest} = state
@@ -182,13 +185,86 @@ function loadData() {
     }
 }
 
+function pickZhVoice() {
+    const voices = window.speechSynthesis ? speechSynthesis.getVoices() : []
+    return voices.find(v => v.lang && v.lang.toLowerCase().startsWith("zh"))
+        || voices.find(v => /Chinese|Xiaoxiao|Tingting|Huihui|Yaoyao|Lili/i.test(v.name))
+        || null
+}
+
 function speak(text) {
-    if (!state.sound || !window.speechSynthesis) return
+    if (!state.sound || !window.speechSynthesis || !text) return
+    speechSynthesis.cancel()
     const u = new SpeechSynthesisUtterance(text)
     u.lang = "zh-CN"
-    u.rate = 0.92
-    speechSynthesis.cancel()
+    u.rate = 0.8
+    u.pitch = 1.05
+    const v = pickZhVoice()
+    if (v) u.voice = v
     speechSynthesis.speak(u)
+}
+
+function speakOne(text) {
+    return new Promise(resolve => {
+        if (!state.sound || !window.speechSynthesis || !text) return resolve()
+        const u = new SpeechSynthesisUtterance(text)
+        u.lang = "zh-CN"
+        u.rate = 0.8
+        u.pitch = 1.05
+        const v = pickZhVoice()
+        if (v) u.voice = v
+        u.onend = resolve
+        u.onerror = resolve
+        speechSynthesis.speak(u)
+    })
+}
+
+async function speakLines(lines) {
+    if (!lines || !lines.length) return
+    if (window.speechSynthesis) speechSynthesis.cancel()
+    for (const line of lines) {
+        await speakOne(line)
+    }
+}
+
+function replaySolution() {
+    if (!state.solutionLines.length) {
+        showSolution(true)
+        return
+    }
+    speakLines(state.solutionLines)
+}
+
+function buildSolutionLines(a, b, ans, op) {
+    if (op === "+") {
+        const big = Math.max(a, b)
+        const small = Math.min(a, b)
+        const need = 10 - big
+        const carry = big < 10 && small > need && need > 0
+        if (!carry) {
+            return [`${a}加${b}`, "把两堆合在一起数", `${a}加${b}等于${ans}`]
+        }
+        const rest = small - need
+        return [
+            `${a}加${b}，用凑十法`,
+            `看大数${big}，还差${need}就到10`,
+            `把${small}分成${need}和${rest}`,
+            `${big}加${need}等于10`,
+            `10加${rest}等于${ans}`
+        ]
+    }
+    const ones = a % 10
+    const borrow = ones < b && b <= 9 && a >= 10
+    if (!borrow) {
+        return [`${a}减${b}`, `个位够减，从${a}里面划掉${b}个`, `${a}减${b}等于${ans}`]
+    }
+    return [
+        `${a}减${b}，用破十法`,
+        `个位${ones}不够减${b}`,
+        `把${a}分成10和${ones}`,
+        `先算10减${b}等于${10 - b}`,
+        `${10 - b}再加${ones}等于${ans}`
+    ]
 }
 
 function switchTab(tab) {
@@ -309,8 +385,8 @@ function showQuestion(q, opts) {
     document.getElementById("tipBox").classList.add("hidden")
     document.getElementById("btnNext").classList.remove("btn-next-ready")
     document.getElementById("btnNext").classList.add("btn-next")
-    speak(`${q.a} ${q.opt === "+" ? "加" : "减"} ${q.b} 等于几`)
     if (opts.autoTip) showSolution(false)
+    else speak(`${q.a} ${q.opt === "+" ? "加" : "减"} ${q.b} 等于几`)
     saveData()
 }
 
@@ -500,6 +576,7 @@ function jumpLevel(i) {
 }
 function toggleSound(on) {
     state.sound = on
+    if (!on && window.speechSynthesis) speechSynthesis.cancel()
     saveData()
 }
 
@@ -553,6 +630,7 @@ function showSolution(play) {
     document.getElementById("splitInfo").innerText = ""
     document.getElementById("solutionAnimation").innerHTML = ""
     document.getElementById("tray").innerHTML = ""
+    state.solutionLines = buildSolutionLines(state.a, state.b, state.ans, state.opt)
     if (state.opt === "+") showAddAnimate(state.a, state.b, state.ans, play)
     else showSubAnimate(state.a, state.b, state.ans, play)
 }
@@ -561,10 +639,16 @@ async function showAddAnimate(a, b, ans, play) {
     const my = ++aniToken
     const alive = () => my === aniToken
     const wait = (ms) => new Promise(r => later(r, play ? ms : 0))
+    const say = async (text) => {
+        if (!alive()) return
+        if (state.sound) await speakOne(text)
+        else await wait(play ? 700 : 0)
+    }
     const big = Math.max(a, b)
     const small = Math.min(a, b)
     const need = 10 - big
     const carry = big < 10 && small > need && need > 0
+    const lines = state.solutionLines
 
     document.getElementById("solutionAnimation").innerHTML =
         `<div class="block-item block-blue">${a}</div><span class="op">+</span><div class="block-item block-green">${b}</div>`
@@ -573,6 +657,7 @@ async function showAddAnimate(a, b, ans, play) {
         document.getElementById("solutionText").innerText = `算式：${a} + ${b}\n👉把两堆合在一起数`
         document.getElementById("framesWrap").innerHTML = framesFor(a, b, 0)
         document.getElementById("splitInfo").innerText = `${a} + ${b} = ${ans}`
+        await speakLines(lines)
         return
     }
 
@@ -580,7 +665,9 @@ async function showAddAnimate(a, b, ans, play) {
         `算式：${a} + ${b}\n👉凑十法：看大数、分小数、凑成十、加剩数`
     document.getElementById("framesWrap").innerHTML = framesFor(big, 0, 0)
     document.getElementById("tray").innerHTML = dots(small)
-    await wait(700)
+    await say(lines[0])
+    if (!alive()) return
+    await say(lines[1])
     if (!alive()) return
     const rest = small - need
     document.getElementById("framesWrap").innerHTML = framesFor(big, need, 0)
@@ -594,18 +681,27 @@ async function showAddAnimate(a, b, ans, play) {
 把 ${small} 分成 ${need} 和 ${rest}
 ${big} + ${need} = 10
 10 + ${rest} = ${ans}`
-    await wait(700)
+    await say(lines[2])
+    if (!alive()) return
+    await say(lines[3])
     if (!alive()) return
     document.getElementById("framesWrap").innerHTML = framesFor(big, small, 0)
     document.getElementById("tray").innerHTML = ""
+    await say(lines[4])
 }
 
 async function showSubAnimate(a, b, ans, play) {
     const my = ++aniToken
     const alive = () => my === aniToken
     const wait = (ms) => new Promise(r => later(r, play ? ms : 0))
+    const say = async (text) => {
+        if (!alive()) return
+        if (state.sound) await speakOne(text)
+        else await wait(play ? 700 : 0)
+    }
     const ones = a % 10
     const borrow = ones < b && b <= 9 && a >= 10
+    const lines = state.solutionLines
 
     document.getElementById("solutionAnimation").innerHTML =
         `<div class="block-item block-blue">${a}</div><span class="op">−</span><div class="block-item block-rose">${b}</div>`
@@ -614,13 +710,16 @@ async function showSubAnimate(a, b, ans, play) {
         document.getElementById("solutionText").innerText = `算式：${a} − ${b}\n👉从大堆里划掉 ${b} 个`
         document.getElementById("framesWrap").innerHTML = framesForSub(a, b)
         document.getElementById("splitInfo").innerText = `${a} − ${b} = ${ans}`
+        await speakLines(lines)
         return
     }
 
     document.getElementById("solutionText").innerText =
         `算式：${a} − ${b}\n👉破十法：把十几分成 10 和几，先从 10 里减`
     document.getElementById("framesWrap").innerHTML = framesFor(10, 0, 0) + tenFrame(ones, 0, 0)
-    await wait(700)
+    await say(lines[0])
+    if (!alive()) return
+    await say(lines[1])
     if (!alive()) return
     document.getElementById("framesWrap").innerHTML = framesFor(10, 0, b) + tenFrame(ones, 0, 0)
     document.getElementById("solutionAnimation").innerHTML = `
@@ -634,9 +733,12 @@ async function showSubAnimate(a, b, ans, play) {
 ${10 - b} + ${ones} = ${ans}
 
 还可以想加算减：${b} + ${ans} = ${a}，所以 ${a} − ${b} = ${ans}`
-    await wait(700)
+    await say(lines[2])
+    if (!alive()) return
+    await say(lines[3])
     if (!alive()) return
     document.getElementById("framesWrap").innerHTML = framesFor(ans, 0, 0)
+    await say(lines[4])
 }
 
 function renderErrorList() {
@@ -653,7 +755,7 @@ function renderErrorList() {
             <span class="error-q">${item.a} ${item.opt} ${item.b} = ?</span>
             <div class="error-actions">
                 <button onclick="practiceError(${idx}, false)" class="btn-sm btn-sm-primary">再练</button>
-                <button onclick="practiceError(${idx}, true)" class="btn-sm btn-sm-hint">看思路</button>
+                <button onclick="practiceError(${idx}, true)" class="btn-sm btn-sm-hint">听思路</button>
             </div>
         </div>
     `).join("")
@@ -728,6 +830,13 @@ document.addEventListener("keydown", (e) => {
 buildKeypad()
 loadData()
 if (!state.todayDate) state.todayDate = todayStr()
+if (window.speechSynthesis) {
+    speechSynthesis.getVoices()
+    speechSynthesis.onvoiceschanged = function () { pickZhVoice() }
+}
+document.addEventListener("touchstart", function () {
+    if (window.speechSynthesis) speechSynthesis.getVoices()
+}, { once: true })
 refreshUi()
 genQuestion()
 </script>
