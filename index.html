@@ -144,6 +144,8 @@ let state = {
 
 let aniToken = 0
 const timers = []
+const spokenUtterances = []
+let resumeWatch = null
 
 function todayStr() {
     const d = new Date()
@@ -160,10 +162,113 @@ function later(fn, ms) {
 function clearTimers() {
     timers.splice(0).forEach(clearTimeout)
     aniToken++
-    if (window.speechSynthesis) speechSynthesis.cancel()
+    stopSpeech()
 }
+
+function stopSpeech() {
+    if (!window.speechSynthesis) return
+    try { speechSynthesis.cancel() } catch (e) {}
+}
+
+function kickSpeech() {
+    if (!window.speechSynthesis) return false
+    try { speechSynthesis.resume() } catch (e) {}
+    if (!resumeWatch) {
+        resumeWatch = setInterval(() => {
+            try {
+                if (speechSynthesis.speaking && speechSynthesis.paused) speechSynthesis.resume()
+            } catch (e) {}
+        }, 250)
+    }
+    return true
+}
+
+function pickZhVoice() {
+    const voices = window.speechSynthesis ? speechSynthesis.getVoices() : []
+    return voices.find(v => v.lang && /^zh(-|$)/i.test(v.lang))
+        || voices.find(v => /Chinese|中文|Xiaoxiao|Tingting|Huihui|Yaoyao|Lili/i.test(v.name))
+        || null
+}
+
+function makeUtterance(text) {
+    const u = new SpeechSynthesisUtterance(String(text).replace(/[👉⭐]/g, ""))
+    u.lang = "zh-CN"
+    u.rate = 0.85
+    u.pitch = 1
+    u.volume = 1
+    const v = pickZhVoice()
+    if (v) u.voice = v
+    spokenUtterances.push(u)
+    if (spokenUtterances.length > 12) spokenUtterances.shift()
+    return u
+}
+
+function primeSpeech() {
+    if (!window.speechSynthesis) {
+        alert("当前浏览器不能朗读，请用 iPad 的 Safari，或电脑上的 Chrome")
+        return false
+    }
+    state.sound = true
+    const box = document.getElementById("soundChk")
+    if (box) box.checked = true
+    kickSpeech()
+    return true
+}
+
+function speak(text) {
+    if (!state.sound || !window.speechSynthesis || !text) return
+    kickSpeech()
+    const u = makeUtterance(text)
+    try { speechSynthesis.speak(u) } catch (e) {}
+    try { speechSynthesis.resume() } catch (e) {}
+}
+
+function speakOne(text) {
+    return new Promise(resolve => {
+        if (!state.sound || !window.speechSynthesis || !text) return resolve()
+        kickSpeech()
+        const u = makeUtterance(text)
+        let done = false
+        const finish = () => {
+            if (done) return
+            done = true
+            resolve()
+        }
+        u.onend = finish
+        u.onerror = finish
+        const waitMs = Math.min(10000, 800 + String(text).length * 280)
+        const t = setTimeout(finish, waitMs)
+        timers.push(t)
+        try { speechSynthesis.speak(u) } catch (e) { finish() }
+        try { speechSynthesis.resume() } catch (e) {}
+    })
+}
+
+async function speakLines(lines) {
+    if (!lines || !lines.length) return
+    for (const line of lines) {
+        await speakOne(line)
+    }
+}
+
+function setSpeakStatus(on) {
+    const btn = document.querySelector(".btn-replay")
+    if (!btn) return
+    btn.textContent = on ? "🔊 正在朗读…" : "🔊 再听一遍"
+}
+
+function replaySolution() {
+    if (!primeSpeech()) return
+    if (!state.solutionLines.length) {
+        showSolution(true)
+        return
+    }
+    setSpeakStatus(true)
+    speakLines(state.solutionLines).then(() => setSpeakStatus(false))
+}
+
 function saveData() {
-    const {input, firstTry, resolved, fromError, ...rest} = state
+    const {input, firstTry, resolved, fromError, solutionLines, ...rest} = state
     localStorage.setItem("math20data", JSON.stringify(rest))
 }
 function loadData() {
@@ -183,56 +288,6 @@ function loadData() {
         state.currentLv = levels.length - 1
         state.allClear = true
     }
-}
-
-function pickZhVoice() {
-    const voices = window.speechSynthesis ? speechSynthesis.getVoices() : []
-    return voices.find(v => v.lang && v.lang.toLowerCase().startsWith("zh"))
-        || voices.find(v => /Chinese|Xiaoxiao|Tingting|Huihui|Yaoyao|Lili/i.test(v.name))
-        || null
-}
-
-function speak(text) {
-    if (!state.sound || !window.speechSynthesis || !text) return
-    speechSynthesis.cancel()
-    const u = new SpeechSynthesisUtterance(text)
-    u.lang = "zh-CN"
-    u.rate = 0.8
-    u.pitch = 1.05
-    const v = pickZhVoice()
-    if (v) u.voice = v
-    speechSynthesis.speak(u)
-}
-
-function speakOne(text) {
-    return new Promise(resolve => {
-        if (!state.sound || !window.speechSynthesis || !text) return resolve()
-        const u = new SpeechSynthesisUtterance(text)
-        u.lang = "zh-CN"
-        u.rate = 0.8
-        u.pitch = 1.05
-        const v = pickZhVoice()
-        if (v) u.voice = v
-        u.onend = resolve
-        u.onerror = resolve
-        speechSynthesis.speak(u)
-    })
-}
-
-async function speakLines(lines) {
-    if (!lines || !lines.length) return
-    if (window.speechSynthesis) speechSynthesis.cancel()
-    for (const line of lines) {
-        await speakOne(line)
-    }
-}
-
-function replaySolution() {
-    if (!state.solutionLines.length) {
-        showSolution(true)
-        return
-    }
-    speakLines(state.solutionLines)
 }
 
 function buildSolutionLines(a, b, ans, op) {
@@ -354,6 +409,7 @@ function cheerMascot() {
     btn.classList.remove("cheer")
     void btn.offsetWidth
     btn.classList.add("cheer")
+    if (!primeSpeech()) return
     const words = ["加油，你最棒！", "抱抱小熊给你鼓劲！", "再做一题，你能行！"]
     speak(words[rand(0, words.length - 1)])
 }
@@ -625,14 +681,18 @@ function dots(n) {
 }
 
 function showSolution(play) {
+    if (play && !primeSpeech()) return
     const box = document.getElementById("tipBox")
     box.classList.remove("hidden")
     document.getElementById("splitInfo").innerText = ""
     document.getElementById("solutionAnimation").innerHTML = ""
     document.getElementById("tray").innerHTML = ""
     state.solutionLines = buildSolutionLines(state.a, state.b, state.ans, state.opt)
-    if (state.opt === "+") showAddAnimate(state.a, state.b, state.ans, play)
-    else showSubAnimate(state.a, state.b, state.ans, play)
+    setSpeakStatus(true)
+    const run = state.opt === "+"
+        ? showAddAnimate(state.a, state.b, state.ans, play)
+        : showSubAnimate(state.a, state.b, state.ans, play)
+    Promise.resolve(run).finally(() => setSpeakStatus(false))
 }
 
 async function showAddAnimate(a, b, ans, play) {
@@ -834,9 +894,19 @@ if (window.speechSynthesis) {
     speechSynthesis.getVoices()
     speechSynthesis.onvoiceschanged = function () { pickZhVoice() }
 }
-document.addEventListener("touchstart", function () {
-    if (window.speechSynthesis) speechSynthesis.getVoices()
-}, { once: true })
+function unlockSpeechOnce() {
+    if (!window.speechSynthesis) return
+    kickSpeech()
+    speechSynthesis.getVoices()
+    const u = new SpeechSynthesisUtterance(" ")
+    u.volume = 0
+    u.lang = "zh-CN"
+    spokenUtterances.push(u)
+    try { speechSynthesis.speak(u) } catch (e) {}
+    try { speechSynthesis.resume() } catch (e) {}
+}
+document.addEventListener("touchstart", unlockSpeechOnce, { once: true })
+document.addEventListener("click", unlockSpeechOnce, { once: true })
 refreshUi()
 genQuestion()
 </script>
