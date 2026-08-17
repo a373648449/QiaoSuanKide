@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>20以内｜凑十破十动画版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+        .block-item {
+            width: 48px; height: 48px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 800; color: white; font-size: 18px;
+        }
+        .tenframe {
+            display: grid;
+            grid-template-columns: repeat(5, 26px);
+            grid-template-rows: repeat(2, 26px);
+            gap: 5px;
+            padding: 8px;
+            background: #fff;
+            border: 2px solid #64748b;
+            border-radius: 12px;
+        }
+        .cell {
+            width: 26px; height: 26px;
+            border-radius: 50%;
+            border: 2px dashed #e2e8f0;
+            background: transparent;
+        }
+        .cell.a { background: #3b82f6; border-color: #1d4ed8; border-style: solid; }
+        .cell.b { background: #22c55e; border-color: #15803d; border-style: solid; }
+        .cell.gone {
+            background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 4px, #fecaca 4px, #fecaca 8px);
+            border: 2px solid #f87171;
+        }
+        .key {
+            height: 56px;
+            font-size: 24px;
+            font-weight: 800;
+            border-radius: 14px;
+            background: #f8fafc;
+            border: 2px solid #cbd5e1;
+        }
+        .key:active { transform: scale(0.96); }
+        .shake { animation: shake 0.35s ease; }
+        @keyframes shake {
+            25% { transform: translateX(-6px); }
+            75% { transform: translateX(6px); }
+        }
+        .pop { animation: pop 0.3s ease; }
+        @keyframes pop {
+            50% { transform: scale(1.08); }
+        }
+    </style>
+</head>
+<body class="bg-sky-50 min-h-screen py-5 px-3">
+<div class="max-w-md mx-auto bg-white rounded-2xl shadow-lg p-4">
+    <h1 class="text-2xl font-bold text-center mb-3">🧮 20以内数学闯关</h1>
+
+    <div class="flex justify-between flex-wrap gap-2 mb-3 text-sm bg-slate-50 p-3 rounded-xl">
+        <span>⭐星星：<span id="star">0</span></span>
+        <span>关卡：<span id="curLv">1</span>/8</span>
+        <span>今日：<span id="todayCount">0</span>/30</span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 mb-4">
+        <button onclick="switchTab('game')" id="tabGame" class="py-2 rounded-lg bg-sky-500 text-white text-sm">练习闯关</button>
+        <button onclick="switchTab('error')" id="tabError" class="py-2 rounded-lg bg-gray-200 text-sm">📒错题本</button>
+        <button onclick="switchTab('report')" id="tabReport" class="py-2 rounded-lg bg-gray-200 text-sm">📊今日报告</button>
+    </div>
+
+    <div id="panelGame">
+        <div id="levelInfo" class="text-center mb-2 text-gray-600"></div>
+        <div class="h-3 bg-gray-200 rounded-full mb-4 overflow-hidden">
+            <div id="progress" class="h-full bg-green-400 w-0 transition-all"></div>
+        </div>
+
+        <div id="story" class="text-center text-slate-500 text-sm min-h-[1.25rem] mb-1"></div>
+        <div id="qBox" class="text-5xl font-black text-center tracking-wide my-4"></div>
+
+        <div class="flex justify-center mb-3">
+            <div id="ansBox" class="w-32 h-14 border-4 border-sky-300 rounded-2xl text-4xl font-black flex items-center justify-center bg-sky-50">?</div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 mb-3" id="keypad"></div>
+
+        <div class="grid grid-cols-2 gap-2 mb-2">
+            <button onclick="showSolution(true)" class="bg-amber-400 py-3 rounded-xl text-lg font-bold">解题思路</button>
+            <button onclick="nextQuestion(true)" id="btnNext" class="bg-slate-200 py-3 rounded-xl text-lg font-bold">下一题</button>
+        </div>
+
+        <div id="msg" class="text-center text-lg font-bold my-2 min-h-[1.75rem]"></div>
+
+        <div id="tipBox" class="hidden p-3 bg-yellow-50 rounded-xl text-sm">
+            <div id="solutionText" class="mb-2 whitespace-pre-line font-semibold text-slate-700"></div>
+            <div id="framesWrap" class="flex flex-wrap justify-center items-start gap-2 my-2"></div>
+            <div id="tray" class="flex justify-center gap-1 min-h-[28px] mb-2"></div>
+            <div id="solutionAnimation" class="flex flex-wrap justify-center items-center gap-2 my-2"></div>
+            <div id="splitInfo" class="mt-1 text-center text-gray-700 whitespace-pre-line font-medium"></div>
+        </div>
+    </div>
+
+    <div id="panelError" class="hidden">
+        <h2 class="text-xl font-bold mb-3">📒错题本</h2>
+        <p class="text-sm text-gray-500 mb-3">先自己再做一遍。想不起来再看思路，做对就会移走。</p>
+        <div id="errorList" class="max-h-[420px] overflow-auto space-y-2 mb-4"></div>
+        <div id="errorEmpty" class="text-center py-10 text-gray-400">暂时还没有错题，加油💪</div>
+        <button onclick="clearAllError()" class="w-full py-2 bg-rose-100 rounded-lg text-rose-600">清空全部错题</button>
+    </div>
+
+    <div id="panelReport" class="hidden">
+        <h2 class="text-xl font-bold mb-4">📊今日学习报告</h2>
+        <div class="space-y-3 text-base">
+            <div class="p-3 bg-slate-50 rounded-lg">今日总题数：<span id="repTotal">0</span></div>
+            <div class="p-3 bg-green-50 rounded-lg">答对：<span id="repRight">0</span></div>
+            <div class="p-3 bg-rose-50 rounded-lg">答错：<span id="repWrong">0</span></div>
+            <div class="p-3 bg-amber-50 rounded-lg">今日正确率：<span id="repAcc">0%</span></div>
+            <div class="p-3 bg-blue-50 rounded-lg">当前闯关进度：第<span id="repLv">1</span>关</div>
+            <div class="p-3 bg-orange-50 rounded-lg">错题本还剩：<span id="repErr">0</span>道</div>
+        </div>
+        <div class="mt-4 p-3 bg-slate-50 rounded-lg space-y-3">
+            <label class="block text-sm font-bold">家长切换关卡
+                <select id="parentLv" class="mt-1 w-full h-10 border-2 rounded-lg px-2" onchange="jumpLevel(+this.value)"></select>
+            </label>
+            <label class="flex items-center gap-2 font-bold text-sm">
+                <input id="soundChk" type="checkbox" onchange="toggleSound(this.checked)"> 读出题目
+            </label>
+        </div>
+        <div class="mt-4 text-sm text-gray-500">每天看一眼正确率和错题。6岁孩子更适合先看十格图把“凑十/破十”想明白，再追求做得快。</div>
+    </div>
+
+    <div id="rewardPop" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-10">
+        <div class="bg-white p-8 rounded-2xl text-center max-w-xs mx-4">
+            <div class="text-5xl mb-3">🎉</div>
+            <h3 class="text-2xl font-bold mb-2">关卡通关！</h3>
+            <p id="rewardText"></p>
+            <button onclick="closeReward()" class="mt-4 bg-sky-500 text-white px-6 py-2 rounded-xl">继续闯关</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const levels = [
+    {name:"10以内加法", max:10, targetAcc:0.8, onlyAdd:true},
+    {name:"10以内减法", max:10, targetAcc:0.8, onlySub:true},
+    {name:"10以内加减混合", max:12, targetAcc:0.8, mix10:true},
+    {name:"20以内不进位加法", max:12, targetAcc:0.8, noCarryAdd:true},
+    {name:"20以内不退位减法", max:12, targetAcc:0.8, noBorrowSub:true},
+    {name:"20以内进位加法【凑十法】", max:15, targetAcc:0.8, carryAdd:true},
+    {name:"20以内退位减法【破十法】", max:15, targetAcc:0.8, borrowSub:true},
+    {name:"20以内进退位混合挑战", max:18, targetAcc:0.75, mix20:true}
+]
+
+let state = {
+    star: 0,
+    currentLv: 0,
+    doneInLv: 0,
+    rightInLv: 0,
+    todayCount: 0,
+    todayRight: 0,
+    todayWrong: 0,
+    todayDate: "",
+    errorBook: [],
+    sound: true,
+    allClear: false,
+    a: 0, b: 0, opt: "+", ans: 0,
+    input: "",
+    firstTry: true,
+    resolved: false,
+    fromError: -1,
+    lastKey: ""
+}
+
+let aniToken = 0
+const timers = []
+
+function todayStr() {
+    const d = new Date()
+    return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`
+}
+function rand(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min
+}
+function later(fn, ms) {
+    const id = setTimeout(fn, ms)
+    timers.push(id)
+    return id
+}
+function clearTimers() {
+    timers.splice(0).forEach(clearTimeout)
+    aniToken++
+}
+function saveData() {
+    const {input, firstTry, resolved, fromError, ...rest} = state
+    localStorage.setItem("math20data", JSON.stringify(rest))
+}
+function loadData() {
+    const str = localStorage.getItem("math20data")
+    if (!str) return
+    try {
+        const d = JSON.parse(str)
+        state = {...state, ...d}
+    } catch (e) {}
+    if (state.todayDate !== todayStr()) {
+        state.todayCount = 0
+        state.todayRight = 0
+        state.todayWrong = 0
+        state.todayDate = todayStr()
+    }
+    if (state.currentLv >= levels.length) {
+        state.currentLv = levels.length - 1
+        state.allClear = true
+    }
+}
+
+function speak(text) {
+    if (!state.sound || !window.speechSynthesis) return
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = "zh-CN"
+    u.rate = 0.92
+    speechSynthesis.cancel()
+    speechSynthesis.speak(u)
+}
+
+function switchTab(tab) {
+    const panels = {game:"panelGame", error:"panelError", report:"panelReport"}
+    const tabs = ["tabGame","tabError","tabReport"]
+    Object.values(panels).forEach(id => document.getElementById(id).classList.add("hidden"))
+    tabs.forEach(id => {
+        document.getElementById(id).className = "py-2 rounded-lg bg-gray-200 text-sm"
+    })
+    document.getElementById(panels[tab]).classList.remove("hidden")
+    const active = tab === "game" ? "tabGame" : tab === "error" ? "tabError" : "tabReport"
+    document.getElementById(active).className = "py-2 rounded-lg bg-sky-500 text-white text-sm"
+    if (tab === "error") renderErrorList()
+    if (tab === "report") renderReport()
+}
+
+function makeQ(kind) {
+    if (kind === "onlyAdd") {
+        const a = rand(1, 9)
+        const b = rand(1, 10 - a)
+        return {a, b, opt:"+", ans: a + b}
+    }
+    if (kind === "onlySub") {
+        const a = rand(2, 10)
+        const b = rand(1, a)
+        return {a, b, opt:"-", ans: a - b}
+    }
+    if (kind === "noCarryAdd") {
+        const a = rand(10, 18)
+        const room = Math.min(9, 9 - (a % 10), 20 - a)
+        const b = rand(1, Math.max(1, room))
+        return {a, b, opt:"+", ans: a + b}
+    }
+    if (kind === "noBorrowSub") {
+        const a = rand(11, 19)
+        const ones = a % 10
+        if (ones < 1) return makeQ(kind)
+        const b = rand(1, ones)
+        return {a, b, opt:"-", ans: a - b}
+    }
+    if (kind === "carryAdd") {
+        const big = rand(6, 9)
+        const need = 10 - big
+        const small = rand(need + 1, 9)
+        return {a: big, b: small, opt:"+", ans: big + small}
+    }
+    if (kind === "borrowSub") {
+        const a = rand(11, 18)
+        const ones = a % 10
+        if (ones >= 9) return makeQ(kind)
+        const b = rand(ones + 1, 9)
+        return {a, b, opt:"-", ans: a - b}
+    }
+    return makeQ("onlyAdd")
+}
+
+function genQuestion() {
+    if (state.todayCount >= 30 && state.fromError < 0) {
+        document.getElementById("qBox").innerText = "今天练够啦"
+        document.getElementById("story").innerText = "明天再来，小小练习更记得住"
+        document.getElementById("ansBox").innerText = "😊"
+        return
+    }
+    const lv = levels[state.currentLv]
+    let q
+    for (let i = 0; i < 30; i++) {
+        if (lv.onlyAdd) q = makeQ("onlyAdd")
+        else if (lv.onlySub) q = makeQ("onlySub")
+        else if (lv.mix10) q = Math.random() < 0.5 ? makeQ("onlyAdd") : makeQ("onlySub")
+        else if (lv.noCarryAdd) q = makeQ("noCarryAdd")
+        else if (lv.noBorrowSub) q = makeQ("noBorrowSub")
+        else if (lv.carryAdd) q = makeQ("carryAdd")
+        else if (lv.borrowSub) q = makeQ("borrowSub")
+        else q = Math.random() < 0.5 ? makeQ("carryAdd") : makeQ("borrowSub")
+        const key = `${q.a}${q.opt}${q.b}`
+        if (key !== state.lastKey) break
+    }
+    showQuestion(q, {fromError: -1, autoTip: shouldAutoTip()})
+}
+
+function shouldAutoTip() {
+    const lv = levels[state.currentLv]
+    return (lv.carryAdd || lv.borrowSub) && state.doneInLv < 2
+}
+
+function storyFor(q) {
+    if (q.opt === "+") return `小狐狸有 ${q.a} 颗草莓，又摘了 ${q.b} 颗`
+    return `小狐狸有 ${q.a} 颗草莓，吃掉了 ${q.b} 颗`
+}
+
+function showQuestion(q, opts) {
+    clearTimers()
+    state.a = q.a
+    state.b = q.b
+    state.opt = q.opt
+    state.ans = q.ans
+    state.input = ""
+    state.firstTry = true
+    state.resolved = false
+    state.fromError = opts.fromError
+    state.lastKey = `${q.a}${q.opt}${q.b}`
+    document.getElementById("qBox").innerText = `${q.a} ${q.opt} ${q.b} = ?`
+    document.getElementById("story").innerText = storyFor(q)
+    document.getElementById("ansBox").innerText = "?"
+    document.getElementById("ansBox").classList.remove("shake", "border-green-400", "border-rose-400")
+    document.getElementById("ansBox").classList.add("border-sky-300")
+    document.getElementById("msg").innerText = ""
+    document.getElementById("tipBox").classList.add("hidden")
+    document.getElementById("btnNext").classList.add("bg-slate-200")
+    document.getElementById("btnNext").classList.remove("bg-sky-500", "text-white")
+    speak(`${q.a} ${q.opt === "+" ? "加" : "减"} ${q.b} 等于几`)
+    if (opts.autoTip) showSolution(false)
+    saveData()
+}
+
+function pressKey(k) {
+    if (state.resolved) return
+    if (k === "del") {
+        state.input = state.input.slice(0, -1)
+    } else if (k === "ok") {
+        submitAnswer()
+        return
+    } else if (state.input.length < 2) {
+        state.input += k
+    }
+    document.getElementById("ansBox").innerText = state.input || "?"
+}
+
+function submitAnswer() {
+    if (state.resolved) return
+    if (state.todayCount >= 30 && state.fromError < 0) {
+        document.getElementById("msg").innerText = "今日题量用完啦，明天再来练习吧~"
+        return
+    }
+    if (!state.input) {
+        const box = document.getElementById("ansBox")
+        box.classList.remove("shake")
+        void box.offsetWidth
+        box.classList.add("shake")
+        document.getElementById("msg").innerText = "先把得数填上再点对勾"
+        return
+    }
+    const input = Number(state.input)
+    const correct = input === state.ans
+    const box = document.getElementById("ansBox")
+    const wasFirstTry = state.firstTry
+    const practicingError = state.fromError >= 0
+
+    if (wasFirstTry && state.fromError < 0) {
+        state.todayCount++
+        state.doneInLv++
+        if (correct) {
+            state.star++
+            state.rightInLv++
+            state.todayRight++
+        } else {
+            state.todayWrong++
+            addError()
+        }
+        state.firstTry = false
+        updateProgress()
+        refreshTopUi()
+        saveData()
+    }
+
+    if (correct) {
+        state.resolved = true
+        box.classList.remove("border-sky-300", "border-rose-400")
+        box.classList.add("border-green-400", "pop")
+        if (practicingError) {
+            state.errorBook.splice(state.fromError, 1)
+            state.fromError = -1
+            saveData()
+            document.getElementById("msg").innerText = "这道错题会了，移出错题本啦"
+        } else {
+            document.getElementById("msg").innerText = wasFirstTry ? "答对啦⭐真棒！" : "看懂啦！就是这样算"
+        }
+        document.getElementById("btnNext").classList.remove("bg-slate-200")
+        document.getElementById("btnNext").classList.add("bg-sky-500", "text-white")
+        speak("答对了")
+        const lv = levels[state.currentLv]
+        if (!practicingError && state.doneInLv >= lv.max) {
+            finishLevelOrRetry()
+        } else {
+            later(() => nextQuestion(false), 1400)
+        }
+    } else {
+        box.classList.remove("border-sky-300")
+        box.classList.add("border-rose-400", "shake")
+        document.getElementById("msg").innerText = "再看看十格图，想明白再填"
+        speak("再想想")
+        showSolution(true)
+        state.input = ""
+        box.innerText = "?"
+    }
+}
+
+function addError() {
+    const qstr = `${state.a}${state.opt}${state.b}`
+    if (!state.errorBook.some(x => x.question === qstr)) {
+        state.errorBook.push({
+            question: qstr,
+            a: state.a, b: state.b, opt: state.opt, answer: state.ans
+        })
+    }
+}
+
+function finishLevelOrRetry() {
+    const lv = levels[state.currentLv]
+    const acc = state.rightInLv / state.doneInLv
+    if (acc >= lv.targetAcc) {
+        later(levelPass, 800)
+        return
+    }
+    document.getElementById("msg").innerText = `正确率${(acc * 100).toFixed(0)}%，先把思路弄懂再重刷`
+    state.doneInLv = 0
+    state.rightInLv = 0
+    updateProgress()
+    saveData()
+    later(genQuestion, 1600)
+}
+
+function updateProgress() {
+    const lv = levels[state.currentLv]
+    const pct = Math.min(100, (state.doneInLv / lv.max) * 100)
+    document.getElementById("progress").style.width = pct + "%"
+}
+
+function levelPass() {
+    state.star += 5
+    saveData()
+    refreshTopUi()
+    document.getElementById("rewardText").innerText = "恭喜！学会本关的计算思路"
+    document.getElementById("rewardPop").classList.remove("hidden")
+}
+
+function closeReward() {
+    document.getElementById("rewardPop").classList.add("hidden")
+    if (state.currentLv >= levels.length - 1) {
+        state.allClear = true
+        document.getElementById("msg").innerText = "🎉全部关卡通关！可以去错题本把不会的再练熟"
+        saveData()
+        return
+    }
+    state.currentLv++
+    state.doneInLv = 0
+    state.rightInLv = 0
+    refreshUi()
+    genQuestion()
+    saveData()
+}
+
+function nextQuestion(manual) {
+    if (!state.resolved && !manual) return
+    if (!state.resolved && manual) {
+        if (!confirm("这题还没做对，确定换一题吗？")) return
+        if (state.firstTry && state.fromError < 0) {
+            state.todayCount++
+            state.todayWrong++
+            state.doneInLv++
+            state.firstTry = false
+            addError()
+            updateProgress()
+            refreshTopUi()
+            saveData()
+            const lv = levels[state.currentLv]
+            if (state.doneInLv >= lv.max) {
+                finishLevelOrRetry()
+                return
+            }
+        }
+    }
+    genQuestion()
+}
+
+function refreshTopUi() {
+    document.getElementById("star").innerText = state.star
+    document.getElementById("curLv").innerText = state.currentLv + 1
+    document.getElementById("todayCount").innerText = state.todayCount
+}
+function refreshUi() {
+    refreshTopUi()
+    const lv = levels[state.currentLv]
+    document.getElementById("levelInfo").innerText = `${lv.name}｜先弄懂思路再做题`
+    updateProgress()
+    const sel = document.getElementById("parentLv")
+    sel.innerHTML = levels.map((l, i) => `<option value="${i}">第${i + 1}关 ${l.name}</option>`).join("")
+    sel.value = String(state.currentLv)
+    document.getElementById("soundChk").checked = !!state.sound
+}
+
+function jumpLevel(i) {
+    state.currentLv = i
+    state.doneInLv = 0
+    state.rightInLv = 0
+    state.allClear = false
+    refreshUi()
+    switchTab("game")
+    genQuestion()
+    saveData()
+}
+function toggleSound(on) {
+    state.sound = on
+    saveData()
+}
+
+function tenFrame(countA, countB, gone) {
+    let html = '<div class="tenframe">'
+    for (let i = 0; i < 10; i++) {
+        let cls = "cell"
+        if (i < gone) cls += " gone"
+        else if (i < countA) cls += " a"
+        else if (i < countA + countB) cls += " b"
+        html += `<div class="${cls}"></div>`
+    }
+    return html + "</div>"
+}
+function framesFor(nA, nB, gone) {
+    gone = gone || 0
+    const total = nA + nB
+    const firstA = Math.min(nA, 10)
+    const firstB = Math.min(Math.max(0, 10 - nA), nB)
+    const secondA = Math.max(0, nA - 10)
+    const secondB = nB - firstB
+    const gone1 = Math.min(gone, 10)
+    const gone2 = Math.max(0, gone - 10)
+    let html = tenFrame(firstA, firstB, gone1)
+    if (total > 10 || nA > 10) html += tenFrame(secondA, secondB, gone2)
+    return html
+}
+function dots(n, color) {
+    return Array.from({length: n}, () => `<div class="w-6 h-6 rounded-full ${color}"></div>`).join("")
+}
+
+function showSolution(play) {
+    const box = document.getElementById("tipBox")
+    box.classList.remove("hidden")
+    document.getElementById("splitInfo").innerText = ""
+    document.getElementById("solutionAnimation").innerHTML = ""
+    document.getElementById("tray").innerHTML = ""
+    if (state.opt === "+") showAddAnimate(state.a, state.b, state.ans, play)
+    else showSubAnimate(state.a, state.b, state.ans, play)
+}
+
+async function showAddAnimate(a, b, ans, play) {
+    const my = ++aniToken
+    const alive = () => my === aniToken
+    const wait = (ms) => new Promise(r => later(r, play ? ms : 0))
+    const big = Math.max(a, b)
+    const small = Math.min(a, b)
+    const need = 10 - big
+    const carry = big < 10 && small > need && need > 0
+
+    document.getElementById("solutionAnimation").innerHTML =
+        `<div class="block-item bg-blue-500">${a}</div><span class="text-xl">+</span><div class="block-item bg-green-500">${b}</div>`
+
+    if (!carry) {
+        document.getElementById("solutionText").innerText = `算式：${a} + ${b}\n👉把两堆合在一起数`
+        document.getElementById("framesWrap").innerHTML = framesFor(a, b, 0)
+        document.getElementById("splitInfo").innerText = `${a} + ${b} = ${ans}`
+        return
+    }
+
+    document.getElementById("solutionText").innerText =
+        `算式：${a} + ${b}\n👉凑十法：看大数、分小数、凑成十、加剩数`
+    document.getElementById("framesWrap").innerHTML = framesFor(big, 0, 0)
+    document.getElementById("tray").innerHTML = dots(small, "bg-green-500")
+    await wait(700)
+    if (!alive()) return
+    const rest = small - need
+    document.getElementById("framesWrap").innerHTML = framesFor(big, need, 0)
+    document.getElementById("tray").innerHTML = dots(rest, "bg-green-500")
+    document.getElementById("solutionAnimation").innerHTML = `
+        <div class="block-item bg-blue-500">${big}</div><span>+</span>
+        <div class="block-item bg-amber-500">${need}</div><span>+</span>
+        <div class="block-item bg-green-500">${rest}</div>`
+    document.getElementById("splitInfo").innerText =
+`${big} 还差 ${need} 就到 10
+把 ${small} 分成 ${need} 和 ${rest}
+${big} + ${need} = 10
+10 + ${rest} = ${ans}`
+    await wait(700)
+    if (!alive()) return
+    document.getElementById("framesWrap").innerHTML = framesFor(big, small, 0)
+    document.getElementById("tray").innerHTML = ""
+}
+
+async function showSubAnimate(a, b, ans, play) {
+    const my = ++aniToken
+    const alive = () => my === aniToken
+    const wait = (ms) => new Promise(r => later(r, play ? ms : 0))
+    const ones = a % 10
+    const borrow = ones < b && b <= 9 && a >= 10
+
+    document.getElementById("solutionAnimation").innerHTML =
+        `<div class="block-item bg-blue-500">${a}</div><span class="text-xl">−</span><div class="block-item bg-rose-500">${b}</div>`
+
+    if (!borrow) {
+        document.getElementById("solutionText").innerText = `算式：${a} − ${b}\n👉从大堆里划掉 ${b} 个`
+        document.getElementById("framesWrap").innerHTML = framesFor(a, 0, b)
+        document.getElementById("splitInfo").innerText = `${a} − ${b} = ${ans}`
+        return
+    }
+
+    document.getElementById("solutionText").innerText =
+        `算式：${a} − ${b}\n👉破十法：把十几分成 10 和几，先从 10 里减`
+    document.getElementById("framesWrap").innerHTML = framesFor(10, 0, 0) + tenFrame(ones, 0, 0)
+    await wait(700)
+    if (!alive()) return
+    document.getElementById("framesWrap").innerHTML = framesFor(10, 0, b) + tenFrame(ones, 0, 0)
+    document.getElementById("solutionAnimation").innerHTML = `
+        <div class="block-item bg-amber-500">10</div><span>+</span>
+        <div class="block-item bg-blue-400">${ones}</div><span>−</span>
+        <div class="block-item bg-rose-500">${b}</div>`
+    document.getElementById("splitInfo").innerText =
+`个位 ${ones} 不够减 ${b}
+把 ${a} 分成 10 和 ${ones}
+10 − ${b} = ${10 - b}
+${10 - b} + ${ones} = ${ans}
+
+还可以想加算减：${b} + ${ans} = ${a}，所以 ${a} − ${b} = ${ans}`
+    await wait(700)
+    if (!alive()) return
+    document.getElementById("framesWrap").innerHTML = framesFor(ans, 0, 0)
+}
+
+function renderErrorList() {
+    const wrap = document.getElementById("errorList")
+    const empty = document.getElementById("errorEmpty")
+    if (state.errorBook.length === 0) {
+        wrap.innerHTML = ""
+        empty.classList.remove("hidden")
+        return
+    }
+    empty.classList.add("hidden")
+    wrap.innerHTML = state.errorBook.map((item, idx) => `
+        <div class="p-3 bg-rose-50 rounded-lg flex justify-between items-center gap-2">
+            <span class="text-xl font-bold">${item.a} ${item.opt} ${item.b} = ?</span>
+            <div class="flex gap-2">
+                <button onclick="practiceError(${idx}, false)" class="px-3 py-1 bg-sky-500 text-white rounded-lg text-sm">再练</button>
+                <button onclick="practiceError(${idx}, true)" class="px-3 py-1 bg-amber-400 rounded-lg text-sm">看思路</button>
+            </div>
+        </div>
+    `).join("")
+}
+
+function practiceError(idx, autoTip) {
+    const item = state.errorBook[idx]
+    switchTab("game")
+    showQuestion(
+        {a: item.a, b: item.b, opt: item.opt, ans: item.answer},
+        {fromError: idx, autoTip}
+    )
+}
+
+function clearAllError() {
+    if (confirm("确定清空全部错题吗？")) {
+        state.errorBook = []
+        saveData()
+        renderErrorList()
+    }
+}
+
+function renderReport() {
+    document.getElementById("repTotal").innerText = state.todayCount
+    document.getElementById("repRight").innerText = state.todayRight
+    document.getElementById("repWrong").innerText = state.todayWrong
+    const acc = state.todayCount > 0 ? (state.todayRight / state.todayCount * 100).toFixed(0) : 0
+    document.getElementById("repAcc").innerText = acc + "%"
+    document.getElementById("repLv").innerText = state.currentLv + 1
+    document.getElementById("repErr").innerText = state.errorBook.length
+    document.getElementById("parentLv").value = String(state.currentLv)
+    document.getElementById("soundChk").checked = !!state.sound
+}
+
+function buildKeypad() {
+    const keys = ["1","2","3","4","5","6","7","8","9","del","0","ok"]
+    const labels = {del:"⌫", ok:"✓"}
+    document.getElementById("keypad").innerHTML = keys.map(k => {
+        const extra = k === "ok" ? "bg-green-500 text-white border-green-600" : k === "del" ? "bg-slate-100" : ""
+        return `<button class="key ${extra}" onclick="pressKey('${k}')">${labels[k] || k}</button>`
+    }).join("")
+}
+
+document.addEventListener("keydown", (e) => {
+    if (document.getElementById("panelGame").classList.contains("hidden")) return
+    if (e.key >= "0" && e.key <= "9") pressKey(e.key)
+    else if (e.key === "Backspace") pressKey("del")
+    else if (e.key === "Enter") pressKey("ok")
+})
+
+buildKeypad()
+loadData()
+if (!state.todayDate) state.todayDate = todayStr()
+refreshUi()
+genQuestion()
+</script>
+</body>
+</html>
