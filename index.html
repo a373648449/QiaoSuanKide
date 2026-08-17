@@ -2,141 +2,108 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#f0f9ff">
     <title>20以内｜凑十破十动画版</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
-        .block-item {
-            width: 48px; height: 48px;
-            border-radius: 10px;
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 800; color: white; font-size: 18px;
-        }
-        .tenframe {
-            display: grid;
-            grid-template-columns: repeat(5, 26px);
-            grid-template-rows: repeat(2, 26px);
-            gap: 5px;
-            padding: 8px;
-            background: #fff;
-            border: 2px solid #64748b;
-            border-radius: 12px;
-        }
-        .cell {
-            width: 26px; height: 26px;
-            border-radius: 50%;
-            border: 2px dashed #e2e8f0;
-            background: transparent;
-        }
-        .cell.a { background: #3b82f6; border-color: #1d4ed8; border-style: solid; }
-        .cell.b { background: #22c55e; border-color: #15803d; border-style: solid; }
-        .cell.gone {
-            background: repeating-linear-gradient(45deg, #fee2e2, #fee2e2 4px, #fecaca 4px, #fecaca 8px);
-            border: 2px solid #f87171;
-        }
-        .key {
-            height: 56px;
-            font-size: 24px;
-            font-weight: 800;
-            border-radius: 14px;
-            background: #f8fafc;
-            border: 2px solid #cbd5e1;
-        }
-        .key:active { transform: scale(0.96); }
-        .shake { animation: shake 0.35s ease; }
-        @keyframes shake {
-            25% { transform: translateX(-6px); }
-            75% { transform: translateX(6px); }
-        }
-        .pop { animation: pop 0.3s ease; }
-        @keyframes pop {
-            50% { transform: scale(1.08); }
-        }
-    </style>
+    <link rel="stylesheet" href="app.css">
 </head>
-<body class="bg-sky-50 min-h-screen py-5 px-3">
-<div class="max-w-md mx-auto bg-white rounded-2xl shadow-lg p-4">
-    <h1 class="text-2xl font-bold text-center mb-3">🧮 20以内数学闯关</h1>
-
-    <div class="flex justify-between flex-wrap gap-2 mb-3 text-sm bg-slate-50 p-3 rounded-xl">
-        <span>⭐星星：<span id="star">0</span></span>
-        <span>关卡：<span id="curLv">1</span>/8</span>
-        <span>今日：<span id="todayCount">0</span>/30</span>
+<body>
+<div class="app">
+    <div class="hero">
+        <button type="button" class="mascot" id="mascotBtn" onclick="cheerMascot()" title="点我抱抱">
+            <img src="hug.gif" alt="抱抱小熊">
+        </button>
+        <div>
+            <h1 class="title">20以内数学闯关</h1>
+            <p class="hero-tip">点小熊会给你加油</p>
+        </div>
     </div>
 
-    <div class="grid grid-cols-3 gap-2 mb-4">
-        <button onclick="switchTab('game')" id="tabGame" class="py-2 rounded-lg bg-sky-500 text-white text-sm">练习闯关</button>
-        <button onclick="switchTab('error')" id="tabError" class="py-2 rounded-lg bg-gray-200 text-sm">📒错题本</button>
-        <button onclick="switchTab('report')" id="tabReport" class="py-2 rounded-lg bg-gray-200 text-sm">📊今日报告</button>
+    <div class="status">
+        <span>⭐星星：<span id="star">0</span></span>
+        <span>今日：<span id="todayCount">0</span></span>
+    </div>
+
+    <div class="level-pick">
+        <span>换关卡</span>
+        <select id="parentLv" onchange="jumpLevel(+this.value)"></select>
+    </div>
+
+    <div class="tabs">
+        <button onclick="switchTab('game')" id="tabGame" class="tab tab-active">练习闯关</button>
+        <button onclick="switchTab('error')" id="tabError" class="tab">📒错题本</button>
+        <button onclick="switchTab('report')" id="tabReport" class="tab">📊今日报告</button>
     </div>
 
     <div id="panelGame">
-        <div id="levelInfo" class="text-center mb-2 text-gray-600"></div>
-        <div class="h-3 bg-gray-200 rounded-full mb-4 overflow-hidden">
-            <div id="progress" class="h-full bg-green-400 w-0 transition-all"></div>
+        <div id="levelInfo" class="level-info"></div>
+        <div class="progress-track">
+            <div id="progress" class="progress-bar"></div>
         </div>
 
-        <div id="story" class="text-center text-slate-500 text-sm min-h-[1.25rem] mb-1"></div>
-        <div id="qBox" class="text-5xl font-black text-center tracking-wide my-4"></div>
-
-        <div class="flex justify-center mb-3">
-            <div id="ansBox" class="w-32 h-14 border-4 border-sky-300 rounded-2xl text-4xl font-black flex items-center justify-center bg-sky-50">?</div>
+        <div class="play-board">
+            <div class="play-q">
+                <div id="story" class="story"></div>
+                <div id="qBox" class="equation"></div>
+                <div class="ans-wrap">
+                    <div id="ansBox" class="ans-box">?</div>
+                </div>
+                <div id="msg" class="msg"></div>
+            </div>
+            <div class="play-keys">
+                <div class="keypad" id="keypad"></div>
+                <div class="actions">
+                    <button onclick="showSolution(true)" class="btn btn-hint">解题思路</button>
+                    <button onclick="nextQuestion(true)" id="btnNext" class="btn btn-next">下一题</button>
+                </div>
+            </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-2 mb-3" id="keypad"></div>
-
-        <div class="grid grid-cols-2 gap-2 mb-2">
-            <button onclick="showSolution(true)" class="bg-amber-400 py-3 rounded-xl text-lg font-bold">解题思路</button>
-            <button onclick="nextQuestion(true)" id="btnNext" class="bg-slate-200 py-3 rounded-xl text-lg font-bold">下一题</button>
-        </div>
-
-        <div id="msg" class="text-center text-lg font-bold my-2 min-h-[1.75rem]"></div>
-
-        <div id="tipBox" class="hidden p-3 bg-yellow-50 rounded-xl text-sm">
-            <div id="solutionText" class="mb-2 whitespace-pre-line font-semibold text-slate-700"></div>
-            <div id="framesWrap" class="flex flex-wrap justify-center items-start gap-2 my-2"></div>
-            <div id="tray" class="flex justify-center gap-1 min-h-[28px] mb-2"></div>
-            <div id="solutionAnimation" class="flex flex-wrap justify-center items-center gap-2 my-2"></div>
-            <div id="splitInfo" class="mt-1 text-center text-gray-700 whitespace-pre-line font-medium"></div>
+        <div id="tipBox" class="tip hidden">
+            <div id="solutionText" class="solution-text"></div>
+            <div id="framesWrap" class="frames"></div>
+            <div id="tray" class="tray"></div>
+            <div id="solutionAnimation" class="solution-blocks"></div>
+            <div id="splitInfo" class="split-info"></div>
         </div>
     </div>
 
     <div id="panelError" class="hidden">
-        <h2 class="text-xl font-bold mb-3">📒错题本</h2>
-        <p class="text-sm text-gray-500 mb-3">先自己再做一遍。想不起来再看思路，做对就会移走。</p>
-        <div id="errorList" class="max-h-[420px] overflow-auto space-y-2 mb-4"></div>
-        <div id="errorEmpty" class="text-center py-10 text-gray-400">暂时还没有错题，加油💪</div>
-        <button onclick="clearAllError()" class="w-full py-2 bg-rose-100 rounded-lg text-rose-600">清空全部错题</button>
+        <h2 class="panel-title">📒错题本</h2>
+        <p class="hint">先自己再做一遍。想不起来再看思路，做对就会移走。</p>
+        <div id="errorList" class="error-list"></div>
+        <div id="errorEmpty" class="error-empty">暂时还没有错题，加油💪</div>
+        <button onclick="clearAllError()" class="btn-clear">清空全部错题</button>
     </div>
 
     <div id="panelReport" class="hidden">
-        <h2 class="text-xl font-bold mb-4">📊今日学习报告</h2>
-        <div class="space-y-3 text-base">
-            <div class="p-3 bg-slate-50 rounded-lg">今日总题数：<span id="repTotal">0</span></div>
-            <div class="p-3 bg-green-50 rounded-lg">答对：<span id="repRight">0</span></div>
-            <div class="p-3 bg-rose-50 rounded-lg">答错：<span id="repWrong">0</span></div>
-            <div class="p-3 bg-amber-50 rounded-lg">今日正确率：<span id="repAcc">0%</span></div>
-            <div class="p-3 bg-blue-50 rounded-lg">当前闯关进度：第<span id="repLv">1</span>关</div>
-            <div class="p-3 bg-orange-50 rounded-lg">错题本还剩：<span id="repErr">0</span>道</div>
+        <h2 class="panel-title">📊今日学习报告</h2>
+        <div class="report-list">
+            <div class="report-item slate">今日总题数：<span id="repTotal">0</span></div>
+            <div class="report-item green">答对：<span id="repRight">0</span></div>
+            <div class="report-item rose">答错：<span id="repWrong">0</span></div>
+            <div class="report-item amber">今日正确率：<span id="repAcc">0%</span></div>
+            <div class="report-item blue">当前闯关进度：第<span id="repLv">1</span>关</div>
+            <div class="report-item orange">错题本还剩：<span id="repErr">0</span>道</div>
         </div>
-        <div class="mt-4 p-3 bg-slate-50 rounded-lg space-y-3">
-            <label class="block text-sm font-bold">家长切换关卡
-                <select id="parentLv" class="mt-1 w-full h-10 border-2 rounded-lg px-2" onchange="jumpLevel(+this.value)"></select>
-            </label>
-            <label class="flex items-center gap-2 font-bold text-sm">
+        <div class="parent-box">
+            <label class="check-row">
                 <input id="soundChk" type="checkbox" onchange="toggleSound(this.checked)"> 读出题目
             </label>
+            <button type="button" class="btn-reset" onclick="resetAllProgress()">一键清空全部进度</button>
+            <p class="parent-tip">会清掉星星、关卡、今日记录和错题本，方便重新练。</p>
         </div>
-        <div class="mt-4 text-sm text-gray-500">每天看一眼正确率和错题。6岁孩子更适合先看十格图把“凑十/破十”想明白，再追求做得快。</div>
+        <div class="note">每天看一眼正确率和错题。想练多久都可以，累了再停。</div>
     </div>
 
-    <div id="rewardPop" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-10">
-        <div class="bg-white p-8 rounded-2xl text-center max-w-xs mx-4">
-            <div class="text-5xl mb-3">🎉</div>
-            <h3 class="text-2xl font-bold mb-2">关卡通关！</h3>
+    <div id="rewardPop" class="modal hidden">
+        <div class="modal-card">
+            <img class="reward-gif" src="hug.gif" alt="抱抱小熊">
+            <h3 class="panel-title">关卡通关！</h3>
             <p id="rewardText"></p>
-            <button onclick="closeReward()" class="mt-4 bg-sky-500 text-white px-6 py-2 rounded-xl">继续闯关</button>
+            <button onclick="closeReward()" class="btn-continue">继续闯关</button>
         </div>
     </div>
 </div>
@@ -229,11 +196,11 @@ function switchTab(tab) {
     const tabs = ["tabGame","tabError","tabReport"]
     Object.values(panels).forEach(id => document.getElementById(id).classList.add("hidden"))
     tabs.forEach(id => {
-        document.getElementById(id).className = "py-2 rounded-lg bg-gray-200 text-sm"
+        document.getElementById(id).className = "tab"
     })
     document.getElementById(panels[tab]).classList.remove("hidden")
     const active = tab === "game" ? "tabGame" : tab === "error" ? "tabError" : "tabReport"
-    document.getElementById(active).className = "py-2 rounded-lg bg-sky-500 text-white text-sm"
+    document.getElementById(active).className = "tab tab-active"
     if (tab === "error") renderErrorList()
     if (tab === "report") renderReport()
 }
@@ -279,12 +246,6 @@ function makeQ(kind) {
 }
 
 function genQuestion() {
-    if (state.todayCount >= 30 && state.fromError < 0) {
-        document.getElementById("qBox").innerText = "今天练够啦"
-        document.getElementById("story").innerText = "明天再来，小小练习更记得住"
-        document.getElementById("ansBox").innerText = "😊"
-        return
-    }
     const lv = levels[state.currentLv]
     let q
     for (let i = 0; i < 30; i++) {
@@ -308,8 +269,24 @@ function shouldAutoTip() {
 }
 
 function storyFor(q) {
-    if (q.opt === "+") return `小狐狸有 ${q.a} 颗草莓，又摘了 ${q.b} 颗`
-    return `小狐狸有 ${q.a} 颗草莓，吃掉了 ${q.b} 颗`
+    if (q.opt === "+") return `抱抱小熊有 ${q.a} 颗草莓，又摘了 ${q.b} 颗`
+    return `抱抱小熊有 ${q.a} 颗草莓，吃掉了 ${q.b} 颗`
+}
+
+function cheerMascot() {
+    const btn = document.getElementById("mascotBtn")
+    btn.classList.remove("cheer")
+    void btn.offsetWidth
+    btn.classList.add("cheer")
+    const words = ["加油，你最棒！", "抱抱小熊给你鼓劲！", "再做一题，你能行！"]
+    speak(words[rand(0, words.length - 1)])
+}
+
+function bounceMascot() {
+    const btn = document.getElementById("mascotBtn")
+    btn.classList.remove("cheer")
+    void btn.offsetWidth
+    btn.classList.add("cheer")
 }
 
 function showQuestion(q, opts) {
@@ -326,12 +303,12 @@ function showQuestion(q, opts) {
     document.getElementById("qBox").innerText = `${q.a} ${q.opt} ${q.b} = ?`
     document.getElementById("story").innerText = storyFor(q)
     document.getElementById("ansBox").innerText = "?"
-    document.getElementById("ansBox").classList.remove("shake", "border-green-400", "border-rose-400")
-    document.getElementById("ansBox").classList.add("border-sky-300")
+    document.getElementById("ansBox").classList.remove("shake", "ans-ok", "ans-bad")
+    document.getElementById("ansBox").classList.add("ans-box")
     document.getElementById("msg").innerText = ""
     document.getElementById("tipBox").classList.add("hidden")
-    document.getElementById("btnNext").classList.add("bg-slate-200")
-    document.getElementById("btnNext").classList.remove("bg-sky-500", "text-white")
+    document.getElementById("btnNext").classList.remove("btn-next-ready")
+    document.getElementById("btnNext").classList.add("btn-next")
     speak(`${q.a} ${q.opt === "+" ? "加" : "减"} ${q.b} 等于几`)
     if (opts.autoTip) showSolution(false)
     saveData()
@@ -345,17 +322,14 @@ function pressKey(k) {
         submitAnswer()
         return
     } else if (state.input.length < 2) {
-        state.input += k
+        if (state.input === "0") state.input = k
+        else state.input += k
     }
     document.getElementById("ansBox").innerText = state.input || "?"
 }
 
 function submitAnswer() {
     if (state.resolved) return
-    if (state.todayCount >= 30 && state.fromError < 0) {
-        document.getElementById("msg").innerText = "今日题量用完啦，明天再来练习吧~"
-        return
-    }
     if (!state.input) {
         const box = document.getElementById("ansBox")
         box.classList.remove("shake")
@@ -365,7 +339,9 @@ function submitAnswer() {
         return
     }
     const input = Number(state.input)
-    const correct = input === state.ans
+    const real = state.opt === "+" ? state.a + state.b : state.a - state.b
+    state.ans = real
+    const correct = input === real
     const box = document.getElementById("ansBox")
     const wasFirstTry = state.firstTry
     const practicingError = state.fromError >= 0
@@ -389,8 +365,8 @@ function submitAnswer() {
 
     if (correct) {
         state.resolved = true
-        box.classList.remove("border-sky-300", "border-rose-400")
-        box.classList.add("border-green-400", "pop")
+        box.classList.remove("ans-bad")
+        box.classList.add("ans-ok", "pop")
         if (practicingError) {
             state.errorBook.splice(state.fromError, 1)
             state.fromError = -1
@@ -399,9 +375,10 @@ function submitAnswer() {
         } else {
             document.getElementById("msg").innerText = wasFirstTry ? "答对啦⭐真棒！" : "看懂啦！就是这样算"
         }
-        document.getElementById("btnNext").classList.remove("bg-slate-200")
-        document.getElementById("btnNext").classList.add("bg-sky-500", "text-white")
+        document.getElementById("btnNext").classList.remove("btn-next")
+        document.getElementById("btnNext").classList.add("btn-next-ready")
         speak("答对了")
+        bounceMascot()
         const lv = levels[state.currentLv]
         if (!practicingError && state.doneInLv >= lv.max) {
             finishLevelOrRetry()
@@ -409,8 +386,7 @@ function submitAnswer() {
             later(() => nextQuestion(false), 1400)
         }
     } else {
-        box.classList.remove("border-sky-300")
-        box.classList.add("border-rose-400", "shake")
+        box.classList.add("ans-bad", "shake")
         document.getElementById("msg").innerText = "再看看十格图，想明白再填"
         speak("再想想")
         showSolution(true)
@@ -499,7 +475,6 @@ function nextQuestion(manual) {
 
 function refreshTopUi() {
     document.getElementById("star").innerText = state.star
-    document.getElementById("curLv").innerText = state.currentLv + 1
     document.getElementById("todayCount").innerText = state.todayCount
 }
 function refreshUi() {
@@ -539,6 +514,22 @@ function tenFrame(countA, countB, gone) {
     }
     return html + "</div>"
 }
+function framesForSub(n, gone) {
+    const frames = n > 10 ? 2 : 1
+    let html = ""
+    for (let f = 0; f < frames; f++) {
+        html += '<div class="tenframe">'
+        for (let i = 0; i < 10; i++) {
+            const idx = f * 10 + i
+            let cls = "cell"
+            if (idx < n - gone) cls += " a"
+            else if (idx < n) cls += " gone"
+            html += `<div class="${cls}"></div>`
+        }
+        html += "</div>"
+    }
+    return html
+}
 function framesFor(nA, nB, gone) {
     gone = gone || 0
     const total = nA + nB
@@ -552,8 +543,8 @@ function framesFor(nA, nB, gone) {
     if (total > 10 || nA > 10) html += tenFrame(secondA, secondB, gone2)
     return html
 }
-function dots(n, color) {
-    return Array.from({length: n}, () => `<div class="w-6 h-6 rounded-full ${color}"></div>`).join("")
+function dots(n) {
+    return Array.from({length: n}, () => `<div class="dot"></div>`).join("")
 }
 
 function showSolution(play) {
@@ -576,7 +567,7 @@ async function showAddAnimate(a, b, ans, play) {
     const carry = big < 10 && small > need && need > 0
 
     document.getElementById("solutionAnimation").innerHTML =
-        `<div class="block-item bg-blue-500">${a}</div><span class="text-xl">+</span><div class="block-item bg-green-500">${b}</div>`
+        `<div class="block-item block-blue">${a}</div><span class="op">+</span><div class="block-item block-green">${b}</div>`
 
     if (!carry) {
         document.getElementById("solutionText").innerText = `算式：${a} + ${b}\n👉把两堆合在一起数`
@@ -588,16 +579,16 @@ async function showAddAnimate(a, b, ans, play) {
     document.getElementById("solutionText").innerText =
         `算式：${a} + ${b}\n👉凑十法：看大数、分小数、凑成十、加剩数`
     document.getElementById("framesWrap").innerHTML = framesFor(big, 0, 0)
-    document.getElementById("tray").innerHTML = dots(small, "bg-green-500")
+    document.getElementById("tray").innerHTML = dots(small)
     await wait(700)
     if (!alive()) return
     const rest = small - need
     document.getElementById("framesWrap").innerHTML = framesFor(big, need, 0)
-    document.getElementById("tray").innerHTML = dots(rest, "bg-green-500")
+    document.getElementById("tray").innerHTML = dots(rest)
     document.getElementById("solutionAnimation").innerHTML = `
-        <div class="block-item bg-blue-500">${big}</div><span>+</span>
-        <div class="block-item bg-amber-500">${need}</div><span>+</span>
-        <div class="block-item bg-green-500">${rest}</div>`
+        <div class="block-item block-blue">${big}</div><span class="op">+</span>
+        <div class="block-item block-amber">${need}</div><span class="op">+</span>
+        <div class="block-item block-green">${rest}</div>`
     document.getElementById("splitInfo").innerText =
 `${big} 还差 ${need} 就到 10
 把 ${small} 分成 ${need} 和 ${rest}
@@ -617,11 +608,11 @@ async function showSubAnimate(a, b, ans, play) {
     const borrow = ones < b && b <= 9 && a >= 10
 
     document.getElementById("solutionAnimation").innerHTML =
-        `<div class="block-item bg-blue-500">${a}</div><span class="text-xl">−</span><div class="block-item bg-rose-500">${b}</div>`
+        `<div class="block-item block-blue">${a}</div><span class="op">−</span><div class="block-item block-rose">${b}</div>`
 
     if (!borrow) {
         document.getElementById("solutionText").innerText = `算式：${a} − ${b}\n👉从大堆里划掉 ${b} 个`
-        document.getElementById("framesWrap").innerHTML = framesFor(a, 0, b)
+        document.getElementById("framesWrap").innerHTML = framesForSub(a, b)
         document.getElementById("splitInfo").innerText = `${a} − ${b} = ${ans}`
         return
     }
@@ -633,9 +624,9 @@ async function showSubAnimate(a, b, ans, play) {
     if (!alive()) return
     document.getElementById("framesWrap").innerHTML = framesFor(10, 0, b) + tenFrame(ones, 0, 0)
     document.getElementById("solutionAnimation").innerHTML = `
-        <div class="block-item bg-amber-500">10</div><span>+</span>
-        <div class="block-item bg-blue-400">${ones}</div><span>−</span>
-        <div class="block-item bg-rose-500">${b}</div>`
+        <div class="block-item block-amber">10</div><span class="op">+</span>
+        <div class="block-item block-sky">${ones}</div><span class="op">−</span>
+        <div class="block-item block-rose">${b}</div>`
     document.getElementById("splitInfo").innerText =
 `个位 ${ones} 不够减 ${b}
 把 ${a} 分成 10 和 ${ones}
@@ -658,11 +649,11 @@ function renderErrorList() {
     }
     empty.classList.add("hidden")
     wrap.innerHTML = state.errorBook.map((item, idx) => `
-        <div class="p-3 bg-rose-50 rounded-lg flex justify-between items-center gap-2">
-            <span class="text-xl font-bold">${item.a} ${item.opt} ${item.b} = ?</span>
-            <div class="flex gap-2">
-                <button onclick="practiceError(${idx}, false)" class="px-3 py-1 bg-sky-500 text-white rounded-lg text-sm">再练</button>
-                <button onclick="practiceError(${idx}, true)" class="px-3 py-1 bg-amber-400 rounded-lg text-sm">看思路</button>
+        <div class="error-item">
+            <span class="error-q">${item.a} ${item.opt} ${item.b} = ?</span>
+            <div class="error-actions">
+                <button onclick="practiceError(${idx}, false)" class="btn-sm btn-sm-primary">再练</button>
+                <button onclick="practiceError(${idx}, true)" class="btn-sm btn-sm-hint">看思路</button>
             </div>
         </div>
     `).join("")
@@ -682,7 +673,28 @@ function clearAllError() {
         state.errorBook = []
         saveData()
         renderErrorList()
+        renderReport()
     }
+}
+
+function resetAllProgress() {
+    if (!confirm("确定清空全部进度吗？星星、关卡、今日记录和错题本都会清掉。")) return
+    state.star = 0
+    state.currentLv = 0
+    state.doneInLv = 0
+    state.rightInLv = 0
+    state.todayCount = 0
+    state.todayRight = 0
+    state.todayWrong = 0
+    state.errorBook = []
+    state.allClear = false
+    state.fromError = -1
+    saveData()
+    refreshUi()
+    renderReport()
+    renderErrorList()
+    genQuestion()
+    alert("已经全部清空，可以从第1关重新练习。")
 }
 
 function renderReport() {
@@ -701,7 +713,7 @@ function buildKeypad() {
     const keys = ["1","2","3","4","5","6","7","8","9","del","0","ok"]
     const labels = {del:"⌫", ok:"✓"}
     document.getElementById("keypad").innerHTML = keys.map(k => {
-        const extra = k === "ok" ? "bg-green-500 text-white border-green-600" : k === "del" ? "bg-slate-100" : ""
+        const extra = k === "ok" ? "key-ok" : k === "del" ? "key-del" : ""
         return `<button class="key ${extra}" onclick="pressKey('${k}')">${labels[k] || k}</button>`
     }).join("")
 }
