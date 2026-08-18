@@ -189,7 +189,40 @@ button, select, .key, .tab, .mascot {
 .ans-wrap {
     display: flex;
     justify-content: center;
+    align-items: center;
+    gap: 8px;
     margin-bottom: 12px;
+}
+
+.react-slot,
+.react-pop {
+    width: 64px;
+    height: 64px;
+    flex: 0 0 64px;
+}
+
+.react-pop {
+    line-height: 0;
+    pointer-events: none;
+    filter: drop-shadow(0 4px 6px rgba(15, 23, 42, 0.16));
+}
+.react-pop.hidden {
+    display: block !important;
+    visibility: hidden;
+}
+.react-pop img {
+    width: 64px;
+    height: 64px;
+    display: block;
+    object-fit: contain;
+}
+.react-pop.react-in {
+    animation: reactIn 0.45s cubic-bezier(.2, 1.4, .32, 1);
+}
+@keyframes reactIn {
+    0% { transform: scale(0.4); opacity: 0; }
+    70% { transform: scale(1.12); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
 }
 
 .ans-box {
@@ -389,6 +422,49 @@ button, select, .key, .tab, .mascot {
 .report-item.blue { background: #eff6ff; }
 .report-item.orange { background: #fff7ed; }
 
+.coach-box {
+    margin-top: 16px;
+    padding: 14px;
+    background: #fff7ed;
+    border: 2px solid #fdba74;
+    border-radius: 12px;
+    display: grid;
+    gap: 10px;
+}
+.coach-title {
+    margin: 0;
+    font-size: 18px;
+    color: #9a3412;
+}
+.coach-kid {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 800;
+    color: #9a3412;
+    line-height: 1.4;
+}
+.coach-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.btn-coach,
+.btn-coach-go {
+    padding: 12px 0;
+    border: 0;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    color: #fff;
+}
+.btn-coach { background: #ea580c; }
+.btn-coach-go { background: #0ea5e9; }
+.btn-coach:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
 .parent-box {
     margin-top: 16px;
     padding: 12px;
@@ -587,6 +663,16 @@ button { font-family: inherit; }
         width: 168px;
         height: 72px;
         font-size: 44px;
+    }
+    .react-slot,
+    .react-pop {
+        width: 76px;
+        height: 76px;
+        flex-basis: 76px;
+    }
+    .react-pop img {
+        width: 76px;
+        height: 76px;
     }
     .keypad { gap: 12px; }
     .key {

@@ -48,7 +48,9 @@
                 <div id="story" class="story"></div>
                 <div id="qBox" class="equation"></div>
                 <div class="ans-wrap">
+                    <div class="react-slot" aria-hidden="true"></div>
                     <div id="ansBox" class="ans-box">?</div>
+                    <div id="reactPop" class="react-pop hidden" aria-hidden="true"></div>
                 </div>
                 <div id="msg" class="msg"></div>
             </div>
@@ -88,6 +90,16 @@
             <div class="report-item amber">今日正确率：<span id="repAcc">0%</span></div>
             <div class="report-item blue">当前闯关进度：第<span id="repLv">1</span>关</div>
             <div class="report-item orange">错题本还剩：<span id="repErr">0</span>道</div>
+        </div>
+        <div class="coach-box">
+            <h3 class="coach-title">🐻 小熊老师</h3>
+            <p id="coachKid" class="coach-kid">今天练完后，让小熊看一看。</p>
+            <p id="coachParent" class="parent-tip"></p>
+            <div class="coach-actions">
+                <button type="button" class="btn-coach" id="btnAnalyze" onclick="askBear()">小熊分析</button>
+                <button type="button" class="btn-coach-go" onclick="startCoachPractice()">按小熊安排练</button>
+            </div>
+            <p id="coachStatus" class="parent-tip"></p>
         </div>
         <div class="parent-box">
             <label class="check-row">
@@ -139,7 +151,13 @@ let state = {
     resolved: false,
     fromError: -1,
     lastKey: "",
-    solutionLines: []
+    solutionLines: [],
+    usedHint: false,
+    todayLog: [],
+    coachPlan: null,
+    coachQueue: [],
+    coachMode: false,
+    usedKeysInLv: []
 }
 
 let aniToken = 0
@@ -268,7 +286,7 @@ function replaySolution() {
 }
 
 function saveData() {
-    const {input, firstTry, resolved, fromError, solutionLines, ...rest} = state
+    const {input, firstTry, resolved, fromError, solutionLines, usedHint, ...rest} = state
     localStorage.setItem("math20data", JSON.stringify(rest))
 }
 function loadData() {
@@ -278,10 +296,14 @@ function loadData() {
         const d = JSON.parse(str)
         state = {...state, ...d}
     } catch (e) {}
+    if (!Array.isArray(state.todayLog)) state.todayLog = []
+    if (!Array.isArray(state.coachQueue)) state.coachQueue = []
+    if (!Array.isArray(state.usedKeysInLv)) state.usedKeysInLv = []
     if (state.todayDate !== todayStr()) {
         state.todayCount = 0
         state.todayRight = 0
         state.todayWrong = 0
+        state.todayLog = []
         state.todayDate = todayStr()
     }
     if (state.currentLv >= levels.length) {
@@ -309,7 +331,7 @@ function buildSolutionLines(a, b, ans, op) {
         ]
     }
     const ones = a % 10
-    const borrow = ones < b && b <= 9 && a >= 10
+    const borrow = ones > 0 && ones < b && b <= 9 && a >= 10
     if (!borrow) {
         return [`${a}减${b}`, `个位够减，从${a}里面划掉${b}个`, `${a}减${b}等于${ans}`]
     }
@@ -336,62 +358,161 @@ function switchTab(tab) {
     if (tab === "report") renderReport()
 }
 
-function makeQ(kind) {
+function factKey(q) {
+    return `${q.a}${q.opt}${q.b}`
+}
+
+function allFacts(kind) {
+    const out = []
     if (kind === "onlyAdd") {
-        const a = rand(1, 9)
-        const b = rand(1, 10 - a)
-        return {a, b, opt:"+", ans: a + b}
+        for (let a = 1; a <= 9; a++) {
+            for (let b = 1; b <= 10 - a; b++) out.push({a, b, opt:"+", ans: a + b})
+        }
+        return out
     }
     if (kind === "onlySub") {
-        const a = rand(2, 10)
-        const b = rand(1, a)
-        return {a, b, opt:"-", ans: a - b}
+        for (let a = 2; a <= 10; a++) {
+            for (let b = 1; b <= a; b++) out.push({a, b, opt:"-", ans: a - b})
+        }
+        return out
     }
     if (kind === "noCarryAdd") {
-        const a = rand(10, 18)
-        const room = Math.min(9, 9 - (a % 10), 20 - a)
-        const b = rand(1, Math.max(1, room))
-        return {a, b, opt:"+", ans: a + b}
+        for (let a = 10; a <= 18; a++) {
+            const room = Math.min(9, 9 - (a % 10), 20 - a)
+            for (let b = 1; b <= Math.max(1, room); b++) out.push({a, b, opt:"+", ans: a + b})
+        }
+        return out
     }
     if (kind === "noBorrowSub") {
-        const a = rand(11, 19)
-        const ones = a % 10
-        if (ones < 1) return makeQ(kind)
-        const b = rand(1, ones)
-        return {a, b, opt:"-", ans: a - b}
+        for (let a = 11; a <= 19; a++) {
+            const ones = a % 10
+            if (ones < 1) continue
+            for (let b = 1; b <= ones; b++) out.push({a, b, opt:"-", ans: a - b})
+        }
+        return out
     }
     if (kind === "carryAdd") {
-        const big = rand(6, 9)
-        const need = 10 - big
-        const small = rand(need + 1, 9)
-        return {a: big, b: small, opt:"+", ans: big + small}
+        for (let big = 6; big <= 9; big++) {
+            const need = 10 - big
+            for (let small = need + 1; small <= 9; small++) {
+                out.push({a: big, b: small, opt:"+", ans: big + small})
+            }
+        }
+        return out
     }
     if (kind === "borrowSub") {
-        const a = rand(11, 18)
-        const ones = a % 10
-        if (ones >= 9) return makeQ(kind)
-        const b = rand(ones + 1, 9)
-        return {a, b, opt:"-", ans: a - b}
+        for (let a = 11; a <= 18; a++) {
+            const ones = a % 10
+            if (ones >= 9) continue
+            for (let b = ones + 1; b <= 9; b++) out.push({a, b, opt:"-", ans: a - b})
+        }
+        return out
     }
-    return makeQ("onlyAdd")
+    return allFacts("onlyAdd")
+}
+
+function makeQ(kind) {
+    const pool = allFacts(kind)
+    return pool[rand(0, pool.length - 1)]
+}
+
+function resolveKind(kind) {
+    if (kind === "mix10") return Math.random() < 0.5 ? "onlyAdd" : "onlySub"
+    if (kind === "mix20") return Math.random() < 0.5 ? "carryAdd" : "borrowSub"
+    return kind
+}
+
+function tooSimilar(q, last) {
+    if (!last || last.a == null) return false
+    if (q.a === last.a) return true
+    if (q.b === last.b) return true
+    if (q.opt === "+" && last.opt === "+" && q.a === last.b && q.b === last.a) return true
+    if (q.opt === last.opt && Math.abs(q.a - last.a) <= 1 && Math.abs(q.b - last.b) <= 1) return true
+    return false
+}
+
+function pickFromPool(pool, usedSet, last) {
+    if (!pool || !pool.length) return null
+    const unused = pool.filter(q => !usedSet.has(factKey(q)))
+    let cand = unused.length ? unused : pool.slice()
+    const lastKey = last ? factKey(last) : ""
+    const filters = [
+        q => !tooSimilar(q, last),
+        q => q.a !== (last && last.a) && q.b !== (last && last.b),
+        q => q.a !== (last && last.a),
+        q => factKey(q) !== lastKey
+    ]
+    for (let i = 0; i < filters.length; i++) {
+        const next = cand.filter(filters[i])
+        if (next.length) {
+            cand = next
+            break
+        }
+    }
+    return cand[rand(0, cand.length - 1)]
+}
+
+function pickDiverse(kind, usedSet, last) {
+    return pickFromPool(allFacts(resolveKind(kind)), usedSet, last)
+}
+
+function pickQuestion(kind) {
+    return pickDiverse(kind, new Set(state.usedKeysInLv || []), {
+        a: state.a, b: state.b, opt: state.opt
+    })
+}
+
+function pickLevelQuestion() {
+    const lv = levels[state.currentLv]
+    let kinds = ["onlyAdd"]
+    if (lv.onlyAdd) kinds = ["onlyAdd"]
+    else if (lv.onlySub) kinds = ["onlySub"]
+    else if (lv.mix10) kinds = ["onlyAdd", "onlySub"]
+    else if (lv.noCarryAdd) kinds = ["noCarryAdd"]
+    else if (lv.noBorrowSub) kinds = ["noBorrowSub"]
+    else if (lv.carryAdd) kinds = ["carryAdd"]
+    else if (lv.borrowSub) kinds = ["borrowSub"]
+    else kinds = ["carryAdd", "borrowSub"]
+
+    const used = new Set(state.usedKeysInLv || [])
+    const open = kinds.filter(k => allFacts(k).some(q => !used.has(factKey(q))))
+    const kind = (open.length ? open : kinds)[rand(0, (open.length ? open : kinds).length - 1)]
+    return pickQuestion(kind)
+}
+
+function rememberLevelFact(q) {
+    if (state.coachMode || state.fromError >= 0) return
+    if (!Array.isArray(state.usedKeysInLv)) state.usedKeysInLv = []
+    const k = factKey(q)
+    if (!state.usedKeysInLv.includes(k)) state.usedKeysInLv.push(k)
+}
+
+function resetLevelFacts() {
+    state.usedKeysInLv = []
 }
 
 function genQuestion() {
-    const lv = levels[state.currentLv]
-    let q
-    for (let i = 0; i < 30; i++) {
-        if (lv.onlyAdd) q = makeQ("onlyAdd")
-        else if (lv.onlySub) q = makeQ("onlySub")
-        else if (lv.mix10) q = Math.random() < 0.5 ? makeQ("onlyAdd") : makeQ("onlySub")
-        else if (lv.noCarryAdd) q = makeQ("noCarryAdd")
-        else if (lv.noBorrowSub) q = makeQ("noBorrowSub")
-        else if (lv.carryAdd) q = makeQ("carryAdd")
-        else if (lv.borrowSub) q = makeQ("borrowSub")
-        else q = Math.random() < 0.5 ? makeQ("carryAdd") : makeQ("borrowSub")
-        const key = `${q.a}${q.opt}${q.b}`
-        if (key !== state.lastKey) break
+    let coachDone = false
+    if (state.coachMode) {
+        if (state.coachQueue && state.coachQueue.length) {
+            const q = state.coachQueue.shift()
+            saveData()
+            const autoTip = !!q._firstTarget && (inferKind(q) === "carryAdd" || inferKind(q) === "borrowSub")
+            showQuestion(q, {fromError: -1, autoTip})
+            const left = state.coachQueue.length
+            const roleText = {warm: "先热热身", target: "练练这道", practice: "同类练熟"}
+            const tag = roleText[q._role] || "针对性练习"
+            document.getElementById("levelInfo").innerText = left
+                ? `小熊老师｜${tag}｜还剩${left + 1}题`
+                : `小熊老师｜${tag}｜最后一题`
+            return
+        }
+        state.coachMode = false
+        coachDone = true
     }
+    const q = pickLevelQuestion()
     showQuestion(q, {fromError: -1, autoTip: shouldAutoTip()})
+    if (coachDone) document.getElementById("msg").innerText = "小熊安排的题练完啦，回到闯关"
 }
 
 function shouldAutoTip() {
@@ -421,6 +542,61 @@ function bounceMascot() {
     btn.classList.add("cheer")
 }
 
+const HAPPY_FACES = [
+    {ch:"👍", gif:"emoji/1f44d.gif"},
+    {ch:"😍", gif:"emoji/1f60d.gif"},
+    {ch:"😄", gif:"emoji/1f604.gif"},
+    {ch:"😎", gif:"emoji/1f60e.gif"},
+    {ch:"🤩", gif:"emoji/1f929.gif"},
+    {ch:"💪", gif:"emoji/1f4aa.gif"},
+    {ch:"👌", gif:"emoji/1f44c.gif"},
+    {ch:"😂", gif:"emoji/1f602.gif"},
+    {ch:"🥳", gif:"emoji/1f973.gif"},
+    {ch:"🤗", gif:"emoji/1f917.gif"},
+    {ch:"🥰", gif:"emoji/1f970.gif"},
+    {ch:"😊", gif:"emoji/1f60a.gif"},
+    {ch:"🎉", gif:"emoji/1f389.gif"},
+    {ch:"👏", gif:"emoji/1f44f.gif"}
+]
+const SAD_FACES = [
+    {ch:"😭", gif:"emoji/1f62d.gif"},
+    {ch:"😢", gif:"emoji/1f622.gif"},
+    {ch:"😞", gif:"emoji/1f61e.gif"},
+    {ch:"🥺", gif:"emoji/1f97a.gif"},
+    {ch:"😩", gif:"emoji/1f629.gif"},
+    {ch:"😫", gif:"emoji/1f62b.gif"},
+    {ch:"😟", gif:"emoji/1f61f.gif"},
+    {ch:"😅", gif:"emoji/1f605.gif"},
+    {ch:"😥", gif:"emoji/1f625.gif"},
+    {ch:"😱", gif:"emoji/1f631.gif"}
+]
+let lastFace = ""
+
+function pickFace(list) {
+    const pool = list.filter(x => x.gif !== lastFace)
+    const face = pool[rand(0, pool.length - 1)] || list[0]
+    lastFace = face.gif
+    return face
+}
+
+function hideReact() {
+    const el = document.getElementById("reactPop")
+    if (!el) return
+    el.classList.add("hidden")
+    el.innerHTML = ""
+}
+
+function showReact(ok) {
+    const face = pickFace(ok ? HAPPY_FACES : SAD_FACES)
+    const el = document.getElementById("reactPop")
+    el.innerHTML = `<img src="${face.gif}?t=${Date.now()}" alt="${face.ch}" width="88" height="88">`
+    el.classList.remove("hidden", "react-ok", "react-bad", "react-in")
+    el.classList.add(ok ? "react-ok" : "react-bad")
+    void el.offsetWidth
+    el.classList.add("react-in")
+    return face.ch
+}
+
 function showQuestion(q, opts) {
     clearTimers()
     state.a = q.a
@@ -431,6 +607,7 @@ function showQuestion(q, opts) {
     state.firstTry = true
     state.resolved = false
     state.fromError = opts.fromError
+    state.usedHint = false
     state.lastKey = `${q.a}${q.opt}${q.b}`
     document.getElementById("qBox").innerText = `${q.a} ${q.opt} ${q.b} = ?`
     document.getElementById("story").innerText = storyFor(q)
@@ -438,11 +615,13 @@ function showQuestion(q, opts) {
     document.getElementById("ansBox").classList.remove("shake", "ans-ok", "ans-bad")
     document.getElementById("ansBox").classList.add("ans-box")
     document.getElementById("msg").innerText = ""
+    hideReact()
     document.getElementById("tipBox").classList.add("hidden")
     document.getElementById("btnNext").classList.remove("btn-next-ready")
     document.getElementById("btnNext").classList.add("btn-next")
     if (opts.autoTip) showSolution(false)
     else speak(`${q.a} ${q.opt === "+" ? "加" : "减"} ${q.b} 等于几`)
+    rememberLevelFact(q)
     saveData()
 }
 
@@ -479,16 +658,17 @@ function submitAnswer() {
     const practicingError = state.fromError >= 0
 
     if (wasFirstTry && state.fromError < 0) {
+        logFirstAttempt(correct)
         state.todayCount++
-        state.doneInLv++
         if (correct) {
             state.star++
-            state.rightInLv++
             state.todayRight++
+            if (!state.coachMode) state.rightInLv++
         } else {
             state.todayWrong++
             addError()
         }
+        if (!state.coachMode) state.doneInLv++
         state.firstTry = false
         updateProgress()
         refreshTopUi()
@@ -499,27 +679,29 @@ function submitAnswer() {
         state.resolved = true
         box.classList.remove("ans-bad")
         box.classList.add("ans-ok", "pop")
+        const face = showReact(true)
         if (practicingError) {
             state.errorBook.splice(state.fromError, 1)
             state.fromError = -1
             saveData()
-            document.getElementById("msg").innerText = "这道错题会了，移出错题本啦"
+            document.getElementById("msg").innerText = `${face} 这道错题会了，移出错题本啦`
         } else {
-            document.getElementById("msg").innerText = wasFirstTry ? "答对啦⭐真棒！" : "看懂啦！就是这样算"
+            document.getElementById("msg").innerText = wasFirstTry ? `${face} 答对啦真棒！` : `${face} 看懂啦！就是这样算`
         }
         document.getElementById("btnNext").classList.remove("btn-next")
         document.getElementById("btnNext").classList.add("btn-next-ready")
         speak("答对了")
         bounceMascot()
         const lv = levels[state.currentLv]
-        if (!practicingError && state.doneInLv >= lv.max) {
+        if (!practicingError && !state.coachMode && state.doneInLv >= lv.max) {
             finishLevelOrRetry()
         } else {
             later(() => nextQuestion(false), 1400)
         }
     } else {
         box.classList.add("ans-bad", "shake")
-        document.getElementById("msg").innerText = "再看看十格图，想明白再填"
+        const face = showReact(false)
+        document.getElementById("msg").innerText = `${face} 再看看十格图，想明白再填`
         speak("再想想")
         showSolution(true)
         state.input = ""
@@ -547,6 +729,7 @@ function finishLevelOrRetry() {
     document.getElementById("msg").innerText = `正确率${(acc * 100).toFixed(0)}%，先把思路弄懂再重刷`
     state.doneInLv = 0
     state.rightInLv = 0
+    resetLevelFacts()
     updateProgress()
     saveData()
     later(genQuestion, 1600)
@@ -577,6 +760,7 @@ function closeReward() {
     state.currentLv++
     state.doneInLv = 0
     state.rightInLv = 0
+    resetLevelFacts()
     refreshUi()
     genQuestion()
     saveData()
@@ -587,16 +771,17 @@ function nextQuestion(manual) {
     if (!state.resolved && manual) {
         if (!confirm("这题还没做对，确定换一题吗？")) return
         if (state.firstTry && state.fromError < 0) {
+            logFirstAttempt(false)
             state.todayCount++
             state.todayWrong++
-            state.doneInLv++
+            if (!state.coachMode) state.doneInLv++
             state.firstTry = false
             addError()
             updateProgress()
             refreshTopUi()
             saveData()
             const lv = levels[state.currentLv]
-            if (state.doneInLv >= lv.max) {
+            if (!state.coachMode && state.doneInLv >= lv.max) {
                 finishLevelOrRetry()
                 return
             }
@@ -625,6 +810,9 @@ function jumpLevel(i) {
     state.doneInLv = 0
     state.rightInLv = 0
     state.allClear = false
+    state.coachMode = false
+    state.coachQueue = []
+    resetLevelFacts()
     refreshUi()
     switchTab("game")
     genQuestion()
@@ -681,6 +869,7 @@ function dots(n) {
 }
 
 function showSolution(play) {
+    if (play) state.usedHint = true
     if (play && !primeSpeech()) return
     const box = document.getElementById("tipBox")
     box.classList.remove("hidden")
@@ -760,7 +949,7 @@ async function showSubAnimate(a, b, ans, play) {
         else await wait(play ? 700 : 0)
     }
     const ones = a % 10
-    const borrow = ones < b && b <= 9 && a >= 10
+    const borrow = ones > 0 && ones < b && b <= 9 && a >= 10
     const lines = state.solutionLines
 
     document.getElementById("solutionAnimation").innerHTML =
@@ -848,6 +1037,11 @@ function resetAllProgress() {
     state.todayCount = 0
     state.todayRight = 0
     state.todayWrong = 0
+    state.todayLog = []
+    state.coachPlan = null
+    state.coachQueue = []
+    state.coachMode = false
+    state.usedKeysInLv = []
     state.errorBook = []
     state.allClear = false
     state.fromError = -1
@@ -857,6 +1051,292 @@ function resetAllProgress() {
     renderErrorList()
     genQuestion()
     alert("已经全部清空，可以从第1关重新练习。")
+}
+
+function logFirstAttempt(correct) {
+    if (!state.todayLog) state.todayLog = []
+    state.todayLog.push({
+        q: `${state.a}${state.opt}${state.b}`,
+        a: state.a,
+        b: state.b,
+        opt: state.opt,
+        correct: !!correct,
+        hint: !!state.usedHint,
+        lv: state.currentLv
+    })
+    if (state.todayLog.length > 80) state.todayLog = state.todayLog.slice(-80)
+}
+
+function parseFact(s) {
+    const m = String(s || "").replace(/\s/g, "").match(/^(\d{1,2})([+\-])(\d{1,2})$/)
+    if (!m) return null
+    const a = +m[1], b = +m[3], opt = m[2]
+    const ans = opt === "+" ? a + b : a - b
+    if (a > 20 || b > 20 || ans < 0 || ans > 20) return null
+    if (opt === "-" && a < b) return null
+    return {a, b, opt, ans}
+}
+
+function kindFromLevel(i) {
+    const lv = levels[i] || levels[0]
+    if (lv.onlyAdd) return "onlyAdd"
+    if (lv.onlySub) return "onlySub"
+    if (lv.mix10) return "mix10"
+    if (lv.noCarryAdd) return "noCarryAdd"
+    if (lv.noBorrowSub) return "noBorrowSub"
+    if (lv.carryAdd) return "carryAdd"
+    if (lv.borrowSub) return "borrowSub"
+    return "mix20"
+}
+
+function inferKind(item) {
+    const a = +item.a, b = +item.b, op = item.opt
+    if (op === "+") {
+        const big = Math.max(a, b), small = Math.min(a, b)
+        const need = 10 - big
+        if (big < 10 && small > need && need > 0) return "carryAdd"
+        if (a + b <= 10) return "onlyAdd"
+        return "noCarryAdd"
+    }
+    const ones = a % 10
+    if (ones > 0 && b > ones) return "borrowSub"
+    if (a <= 10) return "onlySub"
+    return "noBorrowSub"
+}
+
+function validCoachQ(q) {
+    if (!q) return null
+    const a = +q.a, b = +q.b, opt = q.opt
+    const ans = opt === "+" ? a + b : a - b
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null
+    if (a < 0 || b < 0 || ans < 0 || ans > 20) return null
+    if (opt === "-" && a < b) return null
+    return {a, b, opt, ans}
+}
+
+function warmupsFor(q) {
+    const kind = inferKind(q)
+    const lv = state.currentLv
+    const out = []
+    if (kind === "carryAdd") {
+        const big = Math.max(q.a, q.b)
+        const small = Math.min(q.a, q.b)
+        const need = 10 - big
+        const rest = small - need
+        out.push(validCoachQ({a: big, b: need, opt: "+"}))
+        if (lv >= 3 && rest > 0) out.push(validCoachQ({a: 10, b: rest, opt: "+"}))
+    } else if (kind === "borrowSub") {
+        out.push(validCoachQ({a: 10, b: q.b, opt: "-"}))
+        const ones = q.a % 10
+        if (lv >= 4 && ones >= 1) out.push(validCoachQ({a: q.a, b: ones, opt: "-"}))
+    } else if (kind === "onlyAdd") {
+        const tens = allFacts("onlyAdd").filter(x => x.a + x.b === 10 && x.a !== q.a && x.b !== q.b)
+        if (tens[0]) out.push(tens[0])
+    } else if (kind === "onlySub") {
+        if (q.a !== 10) out.push(validCoachQ({a: 10, b: Math.min(q.b, 9), opt: "-"}))
+        else out.push(validCoachQ({a: 8, b: Math.min(q.b, 7), opt: "-"}))
+    } else if (kind === "noCarryAdd") {
+        const other = q.a === 12 ? 14 : 12
+        out.push(validCoachQ({a: other, b: 1, opt: "+"}))
+    } else if (kind === "noBorrowSub") {
+        const other = q.a === 12 ? 15 : 12
+        const ones = other % 10
+        out.push(validCoachQ({a: other, b: 1, opt: "-"}))
+    }
+    return out.filter(Boolean)
+}
+
+function buildCoachQueue(plan, errorBook) {
+    const seen = new Set()
+    const queue = []
+    const add = (q, role) => {
+        q = validCoachQ(q)
+        if (!q) return false
+        const k = factKey(q)
+        if (seen.has(k)) return false
+        if (queue.length && tooSimilar(q, queue[queue.length - 1]) && role !== "target") {
+            return false
+        }
+        seen.add(k)
+        q._role = role || "practice"
+        queue.push(q)
+        return true
+    }
+    const addPicked = (kind, role) => add(pickDiverse(kind, seen, queue[queue.length - 1]), role)
+
+    const seedSeen = new Set()
+    const seeds = []
+    const pushSeed = (q) => {
+        q = validCoachQ(q)
+        if (!q) return
+        const k = factKey(q)
+        if (seedSeen.has(k)) return
+        seedSeen.add(k)
+        seeds.push(q)
+    }
+    ;(plan && plan.weak_facts || []).forEach(f => pushSeed(parseFact(f)))
+    ;(errorBook || []).forEach(x => pushSeed({a: x.a, b: x.b, opt: x.opt, ans: x.answer}))
+
+    const RANK = {onlyAdd: 0, noCarryAdd: 1, carryAdd: 2, onlySub: 3, noBorrowSub: 4, borrowSub: 5}
+    seeds.sort((a, b) => (RANK[inferKind(a)] ?? 9) - (RANK[inferKind(b)] ?? 9) || (a.a + a.b) - (b.a + b.b))
+
+    const groups = {}
+    seeds.forEach(q => {
+        const k = inferKind(q)
+        if (!groups[k]) groups[k] = []
+        groups[k].push(q)
+    })
+
+    const allowed = ["onlyAdd", "onlySub", "noCarryAdd", "noBorrowSub", "carryAdd", "borrowSub"]
+    let kinds = (plan && plan.tomorrow_kinds || [])
+        .map(resolveKind)
+        .filter(k => allowed.includes(k))
+    const blockKinds = []
+    Object.keys(RANK).forEach(k => {
+        if (groups[k] || kinds.includes(k)) blockKinds.push(k)
+    })
+    if (!blockKinds.length) blockKinds.push(resolveKind(kindFromLevel(state.currentLv)))
+
+    const quotas = blockKinds.length === 1 ? [10]
+        : blockKinds.length === 2 ? [6, 4]
+        : [4, 3, 3]
+
+    let firstTarget = true
+    blockKinds.forEach((kind, i) => {
+        const quota = quotas[i] || 3
+        const start = queue.length
+        const seedList = groups[kind] || []
+        if (seedList[0]) {
+            warmupsFor(seedList[0]).forEach(w => {
+                if (queue.length - start < quota) add(w, "warm")
+            })
+        }
+        seedList.forEach(s => {
+            if (queue.length >= 10) return
+            if (add(s, "target") && firstTarget) {
+                queue[queue.length - 1]._firstTarget = true
+                firstTarget = false
+            }
+        })
+        while (queue.length - start < quota && queue.length < 10) {
+            if (!addPicked(kind, "practice")) break
+        }
+    })
+    while (queue.length < 10) {
+        if (!addPicked(blockKinds[blockKinds.length - 1], "practice")) break
+    }
+    return queue.slice(0, 10)
+}
+
+function localPlan() {
+    const wrong = (state.todayLog || []).filter(x => !x.correct)
+    const facts = []
+    const seen = new Set()
+    wrong.forEach(x => {
+        if (x.q && !seen.has(x.q)) { seen.add(x.q); facts.push(x.q) }
+    })
+    state.errorBook.forEach(x => {
+        if (x.question && !seen.has(x.question)) { seen.add(x.question); facts.push(x.question) }
+    })
+    const kinds = []
+    wrong.forEach(x => {
+        const k = inferKind(x)
+        if (!kinds.includes(k)) kinds.push(k)
+    })
+    if (!kinds.length) kinds.push(kindFromLevel(state.currentLv))
+    return {
+        kid_line: facts.length ? `明天先练${facts[0]}，听完思路再填。` : "今天很认真，明天先听思路再做。",
+        parent_note: facts.length
+            ? `容易错：${facts.slice(0, 4).join("、")}。建议先听凑十/破十，再做针对性练习。`
+            : "先按当前关卡练10道。听思路后再自己算。",
+        weak_facts: facts.slice(0, 5),
+        tomorrow_kinds: kinds.slice(0, 2),
+        focus: kinds.includes("carryAdd") ? "凑十" : kinds.includes("borrowSub") ? "破十" : "口算",
+        source: "local"
+    }
+}
+
+function applyCoachPlan(plan) {
+    state.coachPlan = plan
+    saveData()
+    renderCoach()
+}
+
+function renderCoach() {
+    const kid = document.getElementById("coachKid")
+    const parent = document.getElementById("coachParent")
+    const status = document.getElementById("coachStatus")
+    if (!kid) return
+    const plan = state.coachPlan
+    if (!plan) {
+        kid.innerText = "今天练完后，让小熊看一看。"
+        parent.innerText = ""
+        status.innerText = ""
+        return
+    }
+    kid.innerText = plan.kid_line || "今天很棒，明天再听一遍思路。"
+    parent.innerText = plan.parent_note || ""
+    const extra = []
+    if (plan.focus) extra.push("重点：" + plan.focus)
+    if (plan.weak_facts && plan.weak_facts.length) extra.push("要练：" + plan.weak_facts.join("、"))
+    if (plan.source === "ai") extra.push("小熊已经看过今天的练习")
+    else extra.push("还没连上小熊，先按错题安排")
+    status.innerText = extra.join(" ｜ ")
+}
+
+async function askBear() {
+    if (!state.todayCount && !(state.todayLog && state.todayLog.length) && !state.errorBook.length) {
+        alert("今天还没做题，先练几道再让小熊看。")
+        return
+    }
+    const btn = document.getElementById("btnAnalyze")
+    const status = document.getElementById("coachStatus")
+    btn.disabled = true
+    status.innerText = "小熊正在看今天的练习…"
+    const payload = {
+        todayCount: state.todayCount,
+        todayRight: state.todayRight,
+        todayWrong: state.todayWrong,
+        currentLv: state.currentLv,
+        levelName: levels[state.currentLv].name,
+        log: (state.todayLog || []).slice(-80),
+        errorBook: state.errorBook.slice(0, 20).map(x => ({
+            question: x.question, a: x.a, b: x.b, opt: x.opt
+        }))
+    }
+    try {
+        const res = await fetch("/api/analyze", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || "分析失败")
+        applyCoachPlan(data)
+        speak(data.kid_line || "明天先听思路再做")
+    } catch (e) {
+        applyCoachPlan(localPlan())
+        document.getElementById("coachStatus").innerText =
+            "网页要从小熊老师的地址打开才能连上。先按错题安排了，也可以本机运行 python server.py 后再点分析。"
+    }
+    btn.disabled = false
+}
+
+function startCoachPractice() {
+    const plan = state.coachPlan
+    if (!plan && !state.errorBook.length) {
+        alert("先点「小熊分析」，或先做几题留下错题。")
+        return
+    }
+    state.coachQueue = buildCoachQueue(plan, state.errorBook)
+    if (!state.coachQueue.length) {
+        alert("暂时排不出练习，先做几题再让小熊看。")
+        return
+    }
+    state.coachMode = true
+    saveData()
+    switchTab("game")
+    genQuestion()
 }
 
 function renderReport() {
@@ -869,6 +1349,7 @@ function renderReport() {
     document.getElementById("repErr").innerText = state.errorBook.length
     document.getElementById("parentLv").value = String(state.currentLv)
     document.getElementById("soundChk").checked = !!state.sound
+    renderCoach()
 }
 
 function buildKeypad() {
