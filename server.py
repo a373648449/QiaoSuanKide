@@ -2,29 +2,38 @@
 # -*- coding: utf-8 -*-
 """小熊老师：静态页 + DeepSeek 分析代理。密钥只放本机 .env，不要提交。
 
+需要 Python 3.6 或更高。CentOS 若没有 python3：
+  yum install -y python3
+  python3 server.py
+
 本机试：
   1. 复制 .env.example 为 .env，填入 DEEPSEEK_API_KEY
-  2. python server.py
-  3. 浏览器打开 http://127.0.0.1:8090/
+  2. python server.py   （Windows 一般已是 Python 3）
+  3. 浏览器打开 http://127.0.0.1:端口/
 
-服务器若继续用 Nginx 8088 提供网页，让 Python 只监听本机，并加反向代理：
-  location /api/ {
-      proxy_pass http://127.0.0.1:8090/api/;
-      proxy_http_version 1.1;
-      proxy_set_header Host $host;
-      proxy_read_timeout 60s;
-  }
-然后：cd /home/guoqiang/QiaoSuanKide && python3 server.py
+Nginx 对外 5518 时，Python 只监听本机 8090。
 """
-from __future__ import annotations
+import sys
+
+if sys.version_info < (3, 6):
+    sys.stderr.write("Need Python 3.6+.\n")
+    sys.stderr.write("CentOS install: yum install -y python3\n")
+    sys.stderr.write("Then run: python3 server.py\n")
+    sys.exit(1)
 
 import json
 import os
 import re
 import ssl
-import sys
 import urllib.request
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+try:
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+except ImportError:
+    from http.server import HTTPServer, SimpleHTTPRequestHandler
+    from socketserver import ThreadingMixIn
+
+    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ALLOWED_KINDS = (
@@ -40,7 +49,7 @@ ALLOWED_KINDS = (
 FACT_RE = re.compile(r"^(\d{1,2})([+\-])(\d{1,2})$")
 
 
-def load_env(path: str) -> None:
+def load_env(path):
     if not os.path.isfile(path):
         return
     with open(path, encoding="utf-8") as f:
@@ -73,13 +82,13 @@ tomorrow_kinds 只能从这些里选1到2个：onlyAdd, onlySub, mix10, noCarryA
 weak_facts 最多5个，格式必须是 8+6 或 13-5 这种。"""
 
 
-def clip(text, n: int) -> str:
+def clip(text, n):
     s = re.sub(r"\s+", " ", str(text or "")).strip()
     s = re.sub(r"[<>]", "", s)
     return s[:n]
 
 
-def valid_fact(text: str):
+def valid_fact(text):
     m = FACT_RE.match(str(text).replace(" ", ""))
     if not m:
         return None
@@ -87,10 +96,10 @@ def valid_fact(text: str):
     ans = a + b if op == "+" else a - b
     if a > 20 or b > 20 or ans < 0 or ans > 20:
         return None
-    return f"{a}{op}{b}"
+    return "%s%s%s" % (a, op, b)
 
 
-def classify_item(item: dict) -> str:
+def classify_item(item):
     try:
         a = int(item.get("a", 0))
         b = int(item.get("b", 0))
@@ -113,20 +122,20 @@ def classify_item(item: dict) -> str:
     return "noBorrowSub"
 
 
-def local_plan(payload: dict) -> dict:
+def local_plan(payload):
     log = payload.get("log") or []
     wrong = [x for x in log if isinstance(x, dict) and not x.get("correct")]
     facts = []
     seen = set()
     for x in wrong:
-        fact = valid_fact(x.get("q") or f"{x.get('a','')}{x.get('opt','')}{x.get('b','')}")
+        fact = valid_fact(x.get("q") or "%s%s%s" % (x.get("a", ""), x.get("opt", ""), x.get("b", "")))
         if fact and fact not in seen:
             seen.add(fact)
             facts.append(fact)
     for x in payload.get("errorBook") or []:
         if not isinstance(x, dict):
             continue
-        fact = valid_fact(x.get("question") or f"{x.get('a','')}{x.get('opt','')}{x.get('b','')}")
+        fact = valid_fact(x.get("question") or "%s%s%s" % (x.get("a", ""), x.get("opt", ""), x.get("b", "")))
         if fact and fact not in seen:
             seen.add(fact)
             facts.append(fact)
@@ -143,10 +152,10 @@ def local_plan(payload: dict) -> dict:
     focus = "凑十" if "carryAdd" in kinds else "破十" if "borrowSub" in kinds else "口算"
     kid = "今天很认真，明天先听思路再做。"
     if facts:
-        kid = f"明天先练{facts[0]}，听完思路再填。"
+        kid = "明天先练%s，听完思路再填。" % facts[0]
     parent = "先按错题和薄弱类型练10道。听思路后再自己算，不要只求快。"
     if facts:
-        parent = f"容易错：{'、'.join(facts[:4])}。建议先听凑十/破十，再做针对性练习。"
+        parent = "容易错：%s。建议先听凑十/破十，再做针对性练习。" % "、".join(facts[:4])
     return {
         "kid_line": kid[:28],
         "parent_note": parent,
@@ -157,7 +166,7 @@ def local_plan(payload: dict) -> dict:
     }
 
 
-def extract_json(text: str) -> dict:
+def extract_json(text):
     raw = (text or "").strip()
     raw = re.sub(r"^```(?:json)?", "", raw)
     raw = re.sub(r"```$", "", raw).strip()
@@ -167,7 +176,7 @@ def extract_json(text: str) -> dict:
     return json.loads(raw[start : end + 1])
 
 
-def sanitize_plan(data: dict, source: str) -> dict:
+def sanitize_plan(data, source):
     facts = []
     for item in data.get("weak_facts") or []:
         fact = valid_fact(item)
@@ -193,7 +202,7 @@ def sanitize_plan(data: dict, source: str) -> dict:
     }
 
 
-def compact_payload(body: dict) -> dict:
+def compact_payload(body):
     log = []
     for item in (body.get("log") or [])[-80:]:
         if not isinstance(item, dict):
@@ -232,7 +241,7 @@ def compact_payload(body: dict) -> dict:
     }
 
 
-def call_deepseek(payload: dict) -> dict:
+def call_deepseek(payload):
     body = json.dumps(
         {
             "model": MODEL,
@@ -265,17 +274,17 @@ def call_deepseek(payload: dict) -> dict:
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=ROOT, **kwargs)
+        super(Handler, self).__init__(*args, **kwargs)
 
-    def log_message(self, fmt: str, *args) -> None:
+    def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
-    def _cors(self) -> None:
+    def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
-    def _json(self, code: int, data: dict) -> None:
+    def _json(self, code, data):
         blob = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -284,7 +293,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(blob)
 
-    def do_OPTIONS(self) -> None:
+    def do_OPTIONS(self):
         if self.path.split("?", 1)[0].startswith("/api/"):
             self.send_response(204)
             self._cors()
@@ -292,20 +301,20 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self.send_error(404)
 
-    def do_GET(self) -> None:
+    def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
             self._json(200, {"ok": True, "has_key": bool(API_KEY), "model": MODEL})
             return
         super().do_GET()
 
-    def do_POST(self) -> None:
+    def do_POST(self):
         path = self.path.split("?", 1)[0]
         if path != "/api/analyze":
             self.send_error(404)
             return
         length = int(self.headers.get("Content-Length") or 0)
-        if length > 100_000:
+        if length > 100000:
             self._json(413, {"error": "内容太长"})
             return
         try:
@@ -333,15 +342,16 @@ class Handler(SimpleHTTPRequestHandler):
         self._json(200, plan)
 
 
-def main() -> None:
+def main():
     os.chdir(ROOT)
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("QiaoSuanKid  http://127.0.0.1:%s/" % PORT, flush=True)
-    print("API key:", "已配置" if API_KEY else "未配置（先复制 .env.example 为 .env）", flush=True)
+    sys.stdout.write("QiaoSuanKid  http://127.0.0.1:%s/\n" % PORT)
+    sys.stdout.write("API key: %s\n" % ("已配置" if API_KEY else "未配置（先复制 .env.example 为 .env）"))
+    sys.stdout.flush()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nbye")
+        sys.stdout.write("\nbye\n")
 
 
 if __name__ == "__main__":
