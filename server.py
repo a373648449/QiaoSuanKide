@@ -11,7 +11,7 @@
   2. python server.py   （Windows 一般已是 Python 3）
   3. 浏览器打开 http://127.0.0.1:端口/
 
-Nginx 对外 5518 时，Python 只监听本机 8090。
+Nginx 对外 5518 时，Python 只监听本机 15518。
 """
 import sys
 
@@ -69,7 +69,7 @@ if API_KEY.lower() in ("sk-replace-me", "your-key-here", "changeme"):
     API_KEY = ""
 MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash").strip() or "deepseek-v4-flash"
 HOST = os.environ.get("HOST", "0.0.0.0").strip() or "0.0.0.0"
-PORT = int(os.environ.get("PORT", "8090"))
+PORT = int(os.environ.get("PORT", "15518"))
 API_URL = "https://api.deepseek.com/chat/completions"
 
 SYSTEM_PROMPT = """你是「小熊老师」，帮家长看6岁孩子的20以内加减练习记录。
