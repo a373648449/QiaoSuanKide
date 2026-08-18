@@ -105,6 +105,19 @@
             <label class="check-row">
                 <input id="soundChk" type="checkbox" onchange="toggleSound(this.checked)"> 语音讲解
             </label>
+            <label class="field" id="voiceRow">
+                朗读声音
+                <select id="voiceSel" onchange="setVoice(this.value)"></select>
+            </label>
+            <label class="field">
+                朗读速度
+                <select id="paceSel" onchange="setSpeechPace(this.value)">
+                    <option value="slow">慢一点（听思路更清楚）</option>
+                    <option value="normal">适中</option>
+                </select>
+            </label>
+            <button type="button" class="btn-preview" onclick="previewVoice()">试听声音</button>
+            <p class="parent-tip">已接讯飞「小燕」。同一句话会缓存，不占次数。连不上时才用浏览器自带声音。</p>
             <button type="button" class="btn-reset" onclick="resetAllProgress()">一键清空全部进度</button>
             <p class="parent-tip">会清掉星星、关卡、今日记录和错题本，方便重新练。</p>
         </div>
@@ -144,6 +157,8 @@ let state = {
     todayDate: "",
     errorBook: [],
     sound: true,
+    voiceName: "",
+    speechPace: "slow",
     allClear: false,
     a: 0, b: 0, opt: "+", ans: 0,
     input: "",
@@ -164,6 +179,9 @@ let aniToken = 0
 const timers = []
 const spokenUtterances = []
 let resumeWatch = null
+let bearTts = false
+const ttsPlayer = new Audio()
+ttsPlayer.preload = "auto"
 
 function todayStr() {
     const d = new Date()
@@ -184,6 +202,11 @@ function clearTimers() {
 }
 
 function stopSpeech() {
+    try {
+        ttsPlayer.pause()
+        ttsPlayer.removeAttribute("src")
+        ttsPlayer.load()
+    } catch (e) {}
     if (!window.speechSynthesis) return
     try { speechSynthesis.cancel() } catch (e) {}
 }
@@ -201,64 +224,227 @@ function kickSpeech() {
     return true
 }
 
-function pickZhVoice() {
+const ZH_NUM = ["零","一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六","十七","十八","十九","二十"]
+
+function listZhVoices() {
     const voices = window.speechSynthesis ? speechSynthesis.getVoices() : []
-    return voices.find(v => v.lang && /^zh(-|$)/i.test(v.lang))
-        || voices.find(v => /Chinese|中文|Xiaoxiao|Tingting|Huihui|Yaoyao|Lili/i.test(v.name))
-        || null
+    return voices.filter(v => {
+        const blob = (v.lang || "") + " " + (v.name || "")
+        return /zh|Chinese|中文|普通话|国语|Mandarin|Xiaoxiao|Ting-?Ting|Mei-?Jia|Huihui/i.test(blob)
+    })
+}
+
+function scoreZhVoice(v) {
+    const name = v.name || ""
+    const lang = v.lang || ""
+    let s = 1
+    if (/zh-CN|zh_CN|cmn-Hans|普通话/i.test(lang + name)) s += 50
+    else if (/zh-TW|zh_TW|cmn-Hant/i.test(lang + name)) s += 16
+    else if (/zh-HK|yue|粤/i.test(lang + name)) s += 6
+    if (/Neural|Natural|Online|Enhanced|Premium|增强|自然/i.test(name)) s += 90
+    if (/Xiaoxiao|Xiaoyi|Yunxi|Yunyang|Xiaohan|Xiaomo|Xiaoxuan|Xiaoshuang|Yunjian|Yunxia/i.test(name)) s += 80
+    if (/Google/i.test(name) && /普通话|Mandarin|中国|zh-CN/i.test(name + lang)) s += 60
+    if (/Ting-?Ting/i.test(name) && /Enhanced|增强/i.test(name)) s += 45
+    else if (/Ting-?Ting/i.test(name)) s += 12
+    if (/Li-?Mu|Lisheng|Yu-?shu|Lilian/i.test(name)) s += 28
+    if (/Mei-?Jia/i.test(name)) s += 10
+    if (/Huihui|Yaoyao|Hanhan/i.test(name)) s -= 55
+    if (/Desktop|Compact|SAPI/i.test(name) && !/Enhanced|Natural|Neural/i.test(name)) s -= 18
+    if (v.localService) s += 4
+    return s
+}
+
+function niceVoiceName(v) {
+    const n = v.name || ""
+    if (/Xiaoxiao/i.test(n)) return "晓晓（较自然）"
+    if (/Xiaoyi/i.test(n)) return "晓伊"
+    if (/Yunxi/i.test(n)) return "云希"
+    if (/Google/i.test(n) && /普通话|Mandarin|中国|zh-CN/i.test(n + (v.lang || ""))) return "Google 普通话"
+    if (/Ting-?Ting/i.test(n)) return /Enhanced|增强/i.test(n) ? "婷婷增强版" : "婷婷"
+    if (/Huihui/i.test(n)) return "慧慧（系统旧声，不太好听）"
+    if (/Yaoyao/i.test(n)) return "瑶瑶（系统旧声）"
+    if (/Mei-?Jia/i.test(n)) return "美佳（台湾腔）"
+    return n.replace(/^Microsoft\s+/i, "").replace(/\s*Online\s*\(Natural\)/i, " 自然")
+}
+
+function pickZhVoice() {
+    const voices = listZhVoices()
+    if (!voices.length) return null
+    if (state.voiceName) {
+        const chosen = voices.find(v => v.name === state.voiceName)
+        if (chosen) return chosen
+    }
+    voices.sort((a, b) => scoreZhVoice(b) - scoreZhVoice(a))
+    return voices[0]
+}
+
+function fillVoiceSelect() {
+    const sel = document.getElementById("voiceSel")
+    const wrap = document.getElementById("voiceRow")
+    if (!sel) return
+    const voices = listZhVoices().slice().sort((a, b) => scoreZhVoice(b) - scoreZhVoice(a))
+    const opts = []
+    if (bearTts) opts.push('<option value="xfyun">小熊老师（讯飞小燕）</option>')
+    voices.forEach(v => {
+        const rec = !bearTts && v.name === (voices[0] && voices[0].name) ? "（推荐）" : ""
+        opts.push(`<option value="${v.name.replace(/"/g, "")}">${niceVoiceName(v)}${rec}</option>`)
+    })
+    if (!opts.length) {
+        if (wrap) wrap.classList.add("hidden")
+        return
+    }
+    if (wrap) wrap.classList.remove("hidden")
+    if (!state.voiceName) state.voiceName = bearTts ? "xfyun" : (voices[0] && voices[0].name) || ""
+    sel.innerHTML = opts.join("")
+    const names = ["xfyun"].concat(voices.map(v => v.name))
+    if (names.indexOf(state.voiceName) >= 0) sel.value = state.voiceName
+}
+
+function setVoice(name) {
+    state.voiceName = name
+    saveData()
+}
+
+function setSpeechPace(pace) {
+    state.speechPace = pace === "normal" ? "normal" : "slow"
+    saveData()
+}
+
+function previewVoice() {
+    if (!primeSpeech()) return
+    speak("八加六，等于十四。答对啦。")
+}
+
+function forSpeech(text) {
+    let s = String(text).replace(/[👉⭐]/g, "")
+    s = s.replace(/[＋]/g, "加").replace(/[－−]/g, "减")
+    s = s.replace(/\d+/g, m => {
+        const n = Number(m)
+        return (n >= 0 && n <= 20 && ZH_NUM[n]) ? ZH_NUM[n] : m
+    })
+    s = s.replace(/等于/g, "，等于").replace(/，+/g, "，").replace(/^，/, "")
+    if (!/[。！？]$/.test(s)) s += "。"
+    return s
+}
+
+function voiceProsody(voice) {
+    const name = (voice && voice.name) || ""
+    if (/Neural|Natural|Online|Xiaoxiao|Xiaoyi|Yunxi|Google|Enhanced|增强/i.test(name)) {
+        return {rate: 0.94, pitch: 1.04}
+    }
+    if (/Huihui|Yaoyao|Hanhan|Desktop|Compact/i.test(name)) {
+        return {rate: 0.88, pitch: 1.08}
+    }
+    return {rate: 0.92, pitch: 1.06}
 }
 
 function makeUtterance(text) {
-    const u = new SpeechSynthesisUtterance(String(text).replace(/[👉⭐]/g, ""))
+    const u = new SpeechSynthesisUtterance(forSpeech(text))
     u.lang = "zh-CN"
-    u.rate = 0.85
-    u.pitch = 1
     u.volume = 1
     const v = pickZhVoice()
-    if (v) u.voice = v
+    if (v) {
+        u.voice = v
+        if (v.lang) u.lang = v.lang
+    }
+    const p = voiceProsody(v)
+    const pace = state.speechPace === "normal" ? 1 : 0.9
+    u.rate = Math.max(0.7, Math.min(1.05, p.rate * pace))
+    u.pitch = p.pitch
     spokenUtterances.push(u)
     if (spokenUtterances.length > 12) spokenUtterances.shift()
     return u
 }
 
+function useCloudVoice() {
+    return bearTts && (state.voiceName === "xfyun" || !state.voiceName)
+}
+
+function playTtsBlob(blob) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blob)
+        const finish = (ok) => {
+            URL.revokeObjectURL(url)
+            ttsPlayer.onended = null
+            ttsPlayer.onerror = null
+            if (ok) resolve()
+            else reject(new Error("play"))
+        }
+        ttsPlayer.onended = () => finish(true)
+        ttsPlayer.onerror = () => finish(false)
+        ttsPlayer.src = url
+        const p = ttsPlayer.play()
+        if (p && p.catch) p.catch(() => finish(false))
+    })
+}
+
+function speakCloud(text) {
+    return fetch("/api/speak", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({text: forSpeech(text), pace: state.speechPace || "slow"})
+    }).then(res => {
+        if (!res.ok) throw new Error("tts")
+        return res.blob()
+    }).then(playTtsBlob)
+}
+
 function primeSpeech() {
+    state.sound = true
+    const box = document.getElementById("soundChk")
+    if (box) box.checked = true
+    if (bearTts) return true
     if (!window.speechSynthesis) {
         alert("当前浏览器不能朗读，请用 iPad 的 Safari，或电脑上的 Chrome")
         return false
     }
-    state.sound = true
-    const box = document.getElementById("soundChk")
-    if (box) box.checked = true
     kickSpeech()
     return true
 }
 
-function speak(text) {
-    if (!state.sound || !window.speechSynthesis || !text) return
+function speakBrowser(text) {
+    if (!window.speechSynthesis || !text) return
     kickSpeech()
     const u = makeUtterance(text)
     try { speechSynthesis.speak(u) } catch (e) {}
     try { speechSynthesis.resume() } catch (e) {}
 }
 
+function speak(text) {
+    if (!state.sound || !text) return
+    if (useCloudVoice()) {
+        speakCloud(text).catch(() => speakBrowser(text))
+        return
+    }
+    speakBrowser(text)
+}
+
 function speakOne(text) {
     return new Promise(resolve => {
-        if (!state.sound || !window.speechSynthesis || !text) return resolve()
-        kickSpeech()
-        const u = makeUtterance(text)
-        let done = false
-        const finish = () => {
-            if (done) return
-            done = true
-            resolve()
+        if (!state.sound || !text) return resolve()
+        const fallback = () => {
+            if (!window.speechSynthesis) return resolve()
+            kickSpeech()
+            const u = makeUtterance(text)
+            let done = false
+            const finish = () => {
+                if (done) return
+                done = true
+                resolve()
+            }
+            u.onend = finish
+            u.onerror = finish
+            const waitMs = Math.min(10000, 800 + String(text).length * 280)
+            const t = setTimeout(finish, waitMs)
+            timers.push(t)
+            try { speechSynthesis.speak(u) } catch (e) { finish() }
+            try { speechSynthesis.resume() } catch (e) {}
         }
-        u.onend = finish
-        u.onerror = finish
-        const waitMs = Math.min(10000, 800 + String(text).length * 280)
-        const t = setTimeout(finish, waitMs)
-        timers.push(t)
-        try { speechSynthesis.speak(u) } catch (e) { finish() }
-        try { speechSynthesis.resume() } catch (e) {}
+        if (useCloudVoice()) {
+            speakCloud(text).then(resolve).catch(fallback)
+            return
+        }
+        fallback()
     })
 }
 
@@ -299,6 +485,8 @@ function loadData() {
     if (!Array.isArray(state.todayLog)) state.todayLog = []
     if (!Array.isArray(state.coachQueue)) state.coachQueue = []
     if (!Array.isArray(state.usedKeysInLv)) state.usedKeysInLv = []
+    if (state.speechPace !== "normal") state.speechPace = "slow"
+    if (typeof state.voiceName !== "string") state.voiceName = ""
     if (state.todayDate !== todayStr()) {
         state.todayCount = 0
         state.todayRight = 0
@@ -690,7 +878,7 @@ function submitAnswer() {
         }
         document.getElementById("btnNext").classList.remove("btn-next")
         document.getElementById("btnNext").classList.add("btn-next-ready")
-        speak("答对了")
+        speak("答对啦")
         bounceMascot()
         const lv = levels[state.currentLv]
         if (!practicingError && !state.coachMode && state.doneInLv >= lv.max) {
@@ -702,7 +890,7 @@ function submitAnswer() {
         box.classList.add("ans-bad", "shake")
         const face = showReact(false)
         document.getElementById("msg").innerText = `${face} 再看看十格图，想明白再填`
-        speak("再想想")
+        speak("再想一想")
         showSolution(true)
         state.input = ""
         box.innerText = "?"
@@ -803,6 +991,9 @@ function refreshUi() {
     sel.innerHTML = levels.map((l, i) => `<option value="${i}">第${i + 1}关 ${l.name}</option>`).join("")
     sel.value = String(state.currentLv)
     document.getElementById("soundChk").checked = !!state.sound
+    const paceSel = document.getElementById("paceSel")
+    if (paceSel) paceSel.value = state.speechPace === "normal" ? "normal" : "slow"
+    fillVoiceSelect()
 }
 
 function jumpLevel(i) {
@@ -1373,12 +1564,22 @@ loadData()
 if (!state.todayDate) state.todayDate = todayStr()
 if (window.speechSynthesis) {
     speechSynthesis.getVoices()
-    speechSynthesis.onvoiceschanged = function () { pickZhVoice() }
+    speechSynthesis.onvoiceschanged = function () { fillVoiceSelect() }
 }
+fetch("/api/health").then(function (r) { return r.json() }).then(function (d) {
+    bearTts = !!d.has_tts
+    if (bearTts) state.voiceName = "xfyun"
+    fillVoiceSelect()
+}).catch(function () { fillVoiceSelect() })
 function unlockSpeechOnce() {
+    try {
+        ttsPlayer.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+        ttsPlayer.play().catch(function () {})
+    } catch (e) {}
     if (!window.speechSynthesis) return
     kickSpeech()
     speechSynthesis.getVoices()
+    fillVoiceSelect()
     const u = new SpeechSynthesisUtterance(" ")
     u.volume = 0
     u.lang = "zh-CN"

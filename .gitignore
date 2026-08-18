@@ -4,6 +4,7 @@ desktop.ini
 .idea/
 .vscode/
 .env
+tts-cache/
 __pycache__/
 *.pyc
 nohup.out

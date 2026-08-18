@@ -511,6 +511,18 @@ button, select, .key, .tab, .mascot {
     font-weight: 700;
 }
 
+.btn-preview {
+    width: 100%;
+    padding: 10px 0;
+    border: 0;
+    border-radius: 10px;
+    background: #0ea5e9;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
 .note {
     margin-top: 16px;
     font-size: 14px;

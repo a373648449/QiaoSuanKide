@@ -21,11 +21,13 @@ if sys.version_info < (3, 6):
     sys.stderr.write("Then run: python3 server.py\n")
     sys.exit(1)
 
+import hashlib
 import json
 import os
 import re
 import ssl
 import urllib.request
+import xfyun_tts
 try:
     from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 except ImportError:
@@ -71,6 +73,12 @@ MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash").strip() or "deepse
 HOST = os.environ.get("HOST", "0.0.0.0").strip() or "0.0.0.0"
 PORT = int(os.environ.get("PORT", "15518"))
 API_URL = "https://api.deepseek.com/chat/completions"
+XFYUN_APPID = os.environ.get("XFYUN_APPID", "").strip()
+XFYUN_API_KEY = os.environ.get("XFYUN_API_KEY", "").strip()
+XFYUN_API_SECRET = os.environ.get("XFYUN_API_SECRET", "").strip()
+XFYUN_VCN = os.environ.get("XFYUN_VCN", "xiaoyan").strip() or "xiaoyan"
+TTS_CACHE = os.path.join(ROOT, "tts-cache")
+HAS_TTS = bool(XFYUN_APPID and XFYUN_API_KEY and XFYUN_API_SECRET)
 
 SYSTEM_PROMPT = """你是「小熊老师」，帮家长看6岁孩子的20以内加减练习记录。
 程序已经判过对错，你不要重算、不要改答案。
@@ -241,6 +249,55 @@ def compact_payload(body):
     }
 
 
+def tts_ready():
+    return HAS_TTS
+
+
+def speak_mp3(text, pace):
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    text = re.sub(r"[<>]", "", text)
+    if not text:
+        raise ValueError("empty")
+    if len(text) > 200:
+        text = text[:200]
+    speed = 38 if pace == "slow" else 50
+    key = hashlib.md5(("%s|%s|%s" % (XFYUN_VCN, speed, text)).encode("utf-8")).hexdigest()
+    if not os.path.isdir(TTS_CACHE):
+        os.makedirs(TTS_CACHE)
+    path = os.path.join(TTS_CACHE, key + ".mp3")
+    if os.path.isfile(path) and os.path.getsize(path) > 32:
+        with open(path, "rb") as f:
+            return f.read()
+    audio = None
+    last_err = None
+    voices = [XFYUN_VCN, "xiaoyan", "x4_xiaoyan"]
+    seen = set()
+    for vcn in voices:
+        if vcn in seen:
+            continue
+        seen.add(vcn)
+        try:
+            audio = xfyun_tts.synthesize(
+                XFYUN_APPID,
+                XFYUN_API_KEY,
+                XFYUN_API_SECRET,
+                text,
+                vcn=vcn,
+                speed=speed,
+            )
+            break
+        except Exception as exc:
+            last_err = exc
+    if not audio:
+        raise last_err or IOError("tts failed")
+    try:
+        with open(path, "wb") as f:
+            f.write(audio)
+    except Exception:
+        pass
+    return audio
+
+
 def call_deepseek(payload):
     body = json.dumps(
         {
@@ -304,16 +361,49 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path == "/api/health":
-            self._json(200, {"ok": True, "has_key": bool(API_KEY), "model": MODEL})
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "has_key": bool(API_KEY),
+                    "has_tts": tts_ready(),
+                    "tts_voice": XFYUN_VCN if tts_ready() else "",
+                    "model": MODEL,
+                },
+            )
             return
         super().do_GET()
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        length = int(self.headers.get("Content-Length") or 0)
+        if path == "/api/speak":
+            if length > 4000:
+                self._json(413, {"error": "内容太长"})
+                return
+            if not tts_ready():
+                self._json(503, {"error": "还没配置讯飞语音"})
+                return
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                if not isinstance(body, dict):
+                    raise ValueError("bad body")
+                audio = speak_mp3(body.get("text"), body.get("pace"))
+            except Exception as exc:
+                sys.stderr.write("tts failed: %s\n" % exc)
+                self._json(502, {"error": "语音暂时不可用"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/mpeg")
+            self._cors()
+            self.send_header("Cache-Control", "private, max-age=86400")
+            self.send_header("Content-Length", str(len(audio)))
+            self.end_headers()
+            self.wfile.write(audio)
+            return
         if path != "/api/analyze":
             self.send_error(404)
             return
-        length = int(self.headers.get("Content-Length") or 0)
         if length > 100000:
             self._json(413, {"error": "内容太长"})
             return
@@ -342,11 +432,17 @@ class Handler(SimpleHTTPRequestHandler):
         self._json(200, plan)
 
 
+class AppServer(ThreadingHTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def main():
     os.chdir(ROOT)
-    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    httpd = AppServer((HOST, PORT), Handler)
     sys.stdout.write("QiaoSuanKid  http://127.0.0.1:%s/\n" % PORT)
     sys.stdout.write("API key: %s\n" % ("已配置" if API_KEY else "未配置（先复制 .env.example 为 .env）"))
+    sys.stdout.write("讯飞语音: %s\n" % ("已配置" if tts_ready() else "未配置"))
     sys.stdout.flush()
     try:
         httpd.serve_forever()
